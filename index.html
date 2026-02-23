@@ -1937,6 +1937,114 @@
         }
 
         // ============ EXPORTAR / IMPORTAR DATA ============
+        // ═══════════════════════════════════════════════════════════════
+        // IMPORTAR DATA — restaura backup completo incluyendo Gradaciones
+        // ═══════════════════════════════════════════════════════════════
+        async function importarData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            event.target.value = '';   // reset para poder re-importar mismo archivo
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+
+                    // ── Validación mínima ──────────────────────────────────────
+                    if (!data.version && !data.clientes && !data.mixdesigns) {
+                        alert('❌ El archivo no parece ser un backup válido de este sistema.');
+                        return;
+                    }
+
+                    const confirmMsg =
+                        '⚠️ IMPORTAR BACKUP\n\n' +
+                        'Esto AÑADIRÁ los registros del archivo a tu base de datos actual.\n' +
+                        'Los registros existentes no serán eliminados.\n\n' +
+                        'Contenido del archivo:\n' +
+                        (data.clientes    ? `  Clientes:    ${data.clientes.length}\n`    : '') +
+                        (data.proyectos   ? `  Proyectos:   ${data.proyectos.length}\n`   : '') +
+                        (data.materiales  ? `  Materiales:  ${data.materiales.length}\n`  : '') +
+                        (data.mixdesigns  ? `  Mix Designs: ${data.mixdesigns.length}\n`  : '') +
+                        (data.trials      ? `  Trials:      ${data.trials.length}\n`      : '') +
+                        (data.gradaciones ? `  Gradaciones: ${data.gradaciones.length}\n` : '') +
+                        '\n¿Continuar?';
+
+                    if (!confirm(confirmMsg)) return;
+
+                    let importados = { clientes:0, proyectos:0, materiales:0, mixdesigns:0, trials:0, gradaciones:0 };
+
+                    // ── IndexedDB stores ───────────────────────────────────────
+                    const stores = [
+                        { key: 'clientes',   arr: data.clientes   },
+                        { key: 'proyectos',  arr: data.proyectos  },
+                        { key: 'materiales', arr: data.materiales },
+                        { key: 'mixdesigns', arr: data.mixdesigns },
+                        { key: 'trials',     arr: data.trials     }
+                    ];
+
+                    for (const s of stores) {
+                        if (!s.arr || !s.arr.length) continue;
+                        for (const rec of s.arr) {
+                            try {
+                                // Strip the id so IndexedDB assigns a new one (avoids conflicts)
+                                const copy = Object.assign({}, rec);
+                                delete copy.id;
+                                await addRecord(s.key, copy);
+                                importados[s.key]++;
+                            } catch(err) {
+                                console.warn('Import record error:', s.key, err);
+                            }
+                        }
+                    }
+
+                    // ── Gradaciones — localStorage ─────────────────────────────
+                    if (data.gradaciones && data.gradaciones.length) {
+                        const existentes = getGradaciones();
+                        const existIds   = new Set(existentes.map(g => g.id));
+                        let nuevas = 0;
+                        data.gradaciones.forEach(function(g) {
+                            if (!existIds.has(g.id)) {
+                                existentes.push(g);
+                                nuevas++;
+                            }
+                        });
+                        saveGradaciones(existentes);
+                        importados.gradaciones = nuevas;
+                    }
+
+                    // ── Logo ───────────────────────────────────────────────────
+                    if (data.logo) {
+                        try { await guardarLogo(data.logo); } catch(e) { console.warn('Logo import:', e); }
+                    }
+
+                    // ── Refrescar UI ───────────────────────────────────────────
+                    try { await loadClientes();   } catch(e) {}
+                    try { await loadProyectos();  } catch(e) {}
+                    try { await loadMateriales(); } catch(e) {}
+                    try { await loadMixDesigns(); } catch(e) {}
+                    try { await loadTrials();     } catch(e) {}
+                    try { renderGradaciones();    } catch(e) {}
+                    try { updateDashboard();      } catch(e) {}
+
+                    alert(
+                        '✅ Importación completada:\n\n' +
+                        `  Clientes:    ${importados.clientes}\n` +
+                        `  Proyectos:   ${importados.proyectos}\n` +
+                        `  Materiales:  ${importados.materiales}\n` +
+                        `  Mix Designs: ${importados.mixdesigns}\n` +
+                        `  Trials:      ${importados.trials}\n` +
+                        `  Gradaciones: ${importados.gradaciones}`
+                    );
+
+                } catch(err) {
+                    console.error('importarData error:', err);
+                    alert('❌ Error al importar: ' + (err.message || err) +
+                          '\n\nVerifica que el archivo sea un JSON válido de este sistema.');
+                }
+            };
+            reader.readAsText(file);
+        }
+
         async function exportarTodaLaData() {
             try {
                 const data = {
@@ -1946,7 +2054,8 @@
                     proyectos: await getAllRecords('proyectos'),
                     materiales: await getAllRecords('materiales'),
                     mixdesigns: await getAllRecords('mixdesigns'),
-                    trials: await getAllRecords('trials')
+                    trials: await getAllRecords('trials'),
+                    gradaciones: getGradaciones()          // ← desde localStorage
                 };
                 
                 // Incluir logo si existe
@@ -1991,7 +2100,8 @@
                       `Proyectos: ${data.proyectos.length}\n` +
                       `Materiales: ${data.materiales.length}\n` +
                       `Mix Designs: ${data.mixdesigns.length}\n` +
-                      `Trial Mixes: ${data.trials.length}`);
+                      `Trial Mixes: ${data.trials.length}\n` +
+                      `Gradaciones: ${data.gradaciones.length}`);
                 
             } catch (error) {
                 console.error('Error exportando:', error);
@@ -2140,7 +2250,8 @@
                     exportDate:  new Date().toISOString(),
                     companyName: '',
                     companyLogo: (typeof logoEmpresa !== 'undefined' && logoEmpresa) ? logoEmpresa : '',
-                    mixes:       roturasData
+                    mixes:       roturasData,
+                    gradaciones: getGradaciones()          // ← incluir base de datos de gradaciones completa
                 };
 
                 const json = JSON.stringify(backup, null, 2);
