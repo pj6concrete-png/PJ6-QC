@@ -639,6 +639,7 @@
             <div class="tab" onclick="switchTab('mixdesign')">🧪 Mix Design</div>
             <div class="tab" onclick="switchTab('trials')">🔬 Trial Mixes</div>
             <div class="tab" onclick="switchTab('analisis')">📈 Análisis de Data</div>
+            <div class="tab" onclick="switchTab('gradaciones')">🪨 Gradaciones</div>
             <div class="tab" onclick="switchTab('calendario')">📅 Calendario Roturas</div>
             <div class="tab" onclick="switchTab('ai-optimizer')">🤖 AI Optimizer</div>
         </div>
@@ -677,6 +678,7 @@
                 <h2>💾 Gestión de Datos</h2>
                 <div class="button-group">
                     <button type="button" class="success" onclick="exportarTodaLaData()">📥 Exportar Toda la Data</button>
+                    <button type="button" class="info" onclick="abrirModalExportRoturas()" title="Exportar mezclas y cilindros seleccionados para Sistema de Roturas">🧪 Exportar → Roturas</button>
                     <button type="button" class="info" onclick="document.getElementById('import-file').click()">📤 Importar Data</button>
                     <input type="file" id="import-file" accept=".json" style="display:none" onchange="importarData(event)">
                 </div>
@@ -1769,6 +1771,12 @@
 
     <script>
 
+        // Central fetch helper — all AI calls route through here
+
+
+
+
+
         // MIX ID
         async function generarMixId() {
             try {
@@ -1913,6 +1921,12 @@
 
         function getAllRecords(storeName) {
             return new Promise((resolve, reject) => {
+                if (!db) {
+                    initDB().then(function() {
+                        getAllRecords(storeName).then(resolve).catch(reject);
+                    }).catch(reject);
+                    return;
+                }
                 const transaction = db.transaction([storeName], 'readonly');
                 const store = transaction.objectStore(storeName);
                 const request = store.getAll();
@@ -1985,116 +1999,200 @@
             }
         }
 
-        async function importarData(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            
-            // Confirmación
-            if (!confirm('⚠️ ADVERTENCIA: Al importar datos se REEMPLAZARÁ toda la información actual.\n\n' +
-                        '¿Estás seguro de que deseas continuar?\n\n' +
-                        'Recomendación: Exporta tus datos actuales primero como respaldo.')) {
-                event.target.value = ''; // Reset file input
-                return;
-            }
-            
-            const reader = new FileReader();
-            
-            reader.onload = async function(e) {
-                try {
-                    const data = JSON.parse(e.target.result);
-                    
-                    // Validar estructura
-                    if (!data.version || !data.clientes || !data.proyectos || !data.materiales || !data.mixdesigns || !data.trials) {
-                        throw new Error('Archivo JSON inválido o incompleto');
-                    }
-                    
-                    // Limpiar todas las tablas primero
-                    const stores = ['clientes', 'proyectos', 'materiales', 'mixdesigns', 'trials'];
-                    
-                    for (const storeName of stores) {
-                        const transaction = db.transaction([storeName], 'readwrite');
-                        const store = transaction.objectStore(storeName);
-                        await store.clear();
-                    }
-                    
-                    // Importar datos
-                    let importados = {
-                        clientes: 0,
-                        proyectos: 0,
-                        materiales: 0,
-                        mixdesigns: 0,
-                        trials: 0
-                    };
-                    
-                    // Importar cada categoría
-                    for (const cliente of data.clientes) {
-                        await addRecord('clientes', cliente);
-                        importados.clientes++;
-                    }
-                    
-                    for (const proyecto of data.proyectos) {
-                        await addRecord('proyectos', proyecto);
-                        importados.proyectos++;
-                    }
-                    
-                    for (const material of data.materiales) {
-                        await addRecord('materiales', material);
-                        importados.materiales++;
-                    }
-                    
-                    for (const mix of data.mixdesigns) {
-                        await addRecord('mixdesigns', mix);
-                        importados.mixdesigns++;
-                    }
-                    
-                    for (const trial of data.trials) {
-                        await addRecord('trials', trial);
-                        importados.trials++;
-                    }
-                    
-                    // Importar logo si existe
-                    if (data.logo) {
-                        await guardarLogo(data.logo);
-                        mostrarLogo(data.logo);
-                    }
-                    
-                    alert(`✅ Importación exitosa!\n\n` +
-                          `Clientes: ${importados.clientes}\n` +
-                          `Proyectos: ${importados.proyectos}\n` +
-                          `Materiales: ${importados.materiales}\n` +
-                          `Mix Designs: ${importados.mixdesigns}\n` +
-                          `Trial Mixes: ${importados.trials}\n\n` +
-                          `Fecha de exportación original: ${new Date(data.exportDate).toLocaleString('es-ES')}`);
-                    
-                    // Recargar dashboard
-                    updateDashboard();
-                    
-                } catch (error) {
-                    console.error('Error importando:', error);
-                    alert('❌ Error al importar datos: ' + error.message + '\n\nAsegúrate de que el archivo sea un backup válido.');
+        // ══════════════════════════════════════════════════════
+        // EXPORTAR PARA SISTEMA DE ROTURAS DE CILINDROS
+        // ══════════════════════════════════════════════════════
+        async function exportarParaRoturas() {
+            try {
+                const trials    = await getAllRecords('trials');
+                const mixes     = await getAllRecords('mixdesigns');
+                const clientes  = await getAllRecords('clientes');
+                const proyectos = await getAllRecords('proyectos');
+
+                if (trials.length === 0) {
+                    alert('No hay Trial Mixes guardados para exportar.');
+                    return;
                 }
-                
-                // Reset file input
-                event.target.value = '';
-            };
-            
-            reader.onerror = function() {
-                alert('❌ Error al leer el archivo');
-                event.target.value = '';
-            };
-            
-            reader.readAsText(file);
+
+                const mixMap = {};
+
+                trials.forEach(function(trial) {
+                    // Skip trials with no cylinders at all
+                    if (!trial.cilindros || trial.cilindros.length === 0) return;
+
+                    const mixDesign = mixes.find(function(m) { return m.id === trial.mixDesignId; });
+                    if (!mixDesign) return;
+
+                    const key = trial.mixDesignId;
+
+                    if (!mixMap[key]) {
+                        const cliente  = clientes.find(function(c)  { return c.id == mixDesign.clienteId;  });
+                        const proyecto = proyectos.find(function(p) { return p.id == mixDesign.proyectoId; });
+
+                        // Materials: use direct fields first, fall back to resultados
+                        const r = mixDesign.resultados || {};
+
+                        // ── Portland cement ONLY (not lumped with SCMs)
+                        const pesoCemento = parseFloat(mixDesign.pesoCemento)
+                            || (r.cemento ? r.cemento.peso : 0) || 0;
+
+                        // ── SCM 1, 2, 3 — type + weight + supplier separately
+                        const scm1Tipo    = mixDesign.tipoSCM1 || (r.scm1 ? r.scm1.tipo : '') || '';
+                        const scm1Peso    = parseFloat(mixDesign.pesoSCM1)
+                            || (r.scm1 ? r.scm1.peso : 0) || 0;
+
+                        const scm2Tipo    = mixDesign.tipoSCM2 || (r.scm2 ? r.scm2.tipo : '') || '';
+                        const scm2Peso    = parseFloat(mixDesign.pesoSCM2)
+                            || (r.scm2 ? r.scm2.peso : 0) || 0;
+
+                        const scm3Tipo    = mixDesign.tipoSCM3 || (r.scm3 ? r.scm3.tipo : '') || '';
+                        const scm3Peso    = parseFloat(mixDesign.pesoSCM3)
+                            || (r.scm3 ? r.scm3.peso : 0) || 0;
+
+                        // ── Aggregates
+                        const pesoGrueso     = parseFloat(mixDesign.pesoGrueso)
+                            || (r.grueso     ? r.grueso.peso     : 0) || 0;
+                        const pesoIntermedio = parseFloat(mixDesign.pesoIntermedio)
+                            || (r.intermedio ? r.intermedio.peso : 0) || 0;
+                        const pesoArena1     = (r.arena1 ? r.arena1.peso : 0) || 0;
+                        const pesoArena2     = (r.arena2 ? r.arena2.peso : 0) || 0;
+
+                        // ── Water
+                        const pesoAgua = parseFloat(mixDesign.pesoAgua)
+                            || (r.agua ? r.agua.peso : 0) || 0;
+
+                        // ── Mix ID
+                        const mixIdStr = mixDesign.mixId
+                            ? mixDesign.mixId
+                            : ('MIX-' + String(mixDesign.id).padStart(4, '0'));
+
+                        mixMap[key] = {
+                            id:           mixIdStr,
+                            project:      (proyecto ? proyecto.nombre : '') || mixDesign.nombre || '',
+                            contractor:   (cliente  ? cliente.nombre  : '') || '',
+                            plant:        mixDesign.planta || '',
+                            description:  mixDesign.nombre + (mixDesign.aplicacion ? ' - ' + mixDesign.aplicacion : ''),
+                            qcManager:    mixDesign.responsable || '',
+                            specStrength: mixDesign.resistencia || 0,
+                            requiredAge:  28,
+                            materials: {
+                                // Portland cement ONLY — matches roturas v8 'cement' field
+                                cement:            pesoCemento,
+                                cementSupplier:    mixDesign.tipoCemento || '',
+                                // SCM fields — map 1-to-1 into roturas v8 scm1Type/scm1Weight/scm1Supplier
+                                scm1Type:          scm1Tipo,
+                                scm1Weight:        scm1Peso,
+                                scm1Supplier:      '',
+                                scm2Type:          scm2Tipo,
+                                scm2Weight:        scm2Peso,
+                                scm2Supplier:      '',
+                                scm3Type:          scm3Tipo,
+                                scm3Weight:        scm3Peso,
+                                scm3Supplier:      '',
+                                // Aggregates — grueso + intermedio combined
+                                coarseAgg:         pesoGrueso + pesoIntermedio,
+                                coarseAggSupplier: '',
+                                manSand:           pesoArena1,
+                                manSandSupplier:   '',
+                                natSand:           pesoArena2,
+                                natSandSupplier:   '',
+                                water:             pesoAgua
+                            },
+                            tests: []
+                        };
+                    }
+
+                    // Group cylinders by age - include ALL that have resistencia > 0
+                    const ageMap = {};
+                    trial.cilindros.forEach(function(cil) {
+                        var age = parseInt(cil.diasCurado) || 28;
+                        var res = parseFloat(cil.resistencia) || 0;
+                        if (res <= 0) return;
+                        if (!ageMap[age]) ageMap[age] = [];
+                        ageMap[age].push(res);
+                    });
+
+                    const ages = Object.keys(ageMap)
+                        .sort(function(a, b) { return parseInt(a) - parseInt(b); })
+                        .map(function(age) {
+                            return { age: parseInt(age), strengths: ageMap[age] };
+                        })
+                        .filter(function(a) { return a.strengths.length > 0; });
+
+                    if (ages.length > 0) {
+                        mixMap[key].tests.push({
+                            date:  trial.fecha || new Date().toISOString().slice(0, 10),
+                            slump: parseFloat(trial.slump) || 0,
+                            ages:  ages
+                        });
+                    }
+                });
+
+                const roturasData = Object.values(mixMap).filter(function(m) { return m.tests.length > 0; });
+
+                if (roturasData.length === 0) {
+                    alert('No hay cilindros con resultados de resistencia para exportar. Ingresa las resistencias en Trial Mixes primero.');
+                    return;
+                }
+
+                const backup = {
+                    version:     '1.0',
+                    exportDate:  new Date().toISOString(),
+                    companyName: '',
+                    companyLogo: (typeof logoEmpresa !== 'undefined' && logoEmpresa) ? logoEmpresa : '',
+                    mixes:       roturasData
+                };
+
+                const json = JSON.stringify(backup, null, 2);
+                const blob = new Blob([json], { type: 'application/json' });
+                const url  = URL.createObjectURL(blob);
+                const a    = document.createElement('a');
+                a.href     = url;
+                a.download = 'roturas_export_' + new Date().toISOString().slice(0, 10) + '.json';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                const totalTrials    = roturasData.reduce(function(s, m) { return s + m.tests.length; }, 0);
+                const totalCilindros = roturasData.reduce(function(s, m) {
+                    return s + m.tests.reduce(function(ts, t) {
+                        return ts + t.ages.reduce(function(as, a) { return as + a.strengths.length; }, 0);
+                    }, 0);
+                }, 0);
+
+                alert('Exportado correctamente:\n' +
+                      '  Mezclas: ' + roturasData.length + '\n' +
+                      '  Trials:  ' + totalTrials + '\n' +
+                      '  Cilindros con resultado: ' + totalCilindros + '\n\n' +
+                      'Abre el Sistema de Roturas y usa Importar.');
+
+            } catch (err) {
+                console.error('Error exportando:', err);
+                alert('Error al exportar: ' + (err.message || err));
+            }
         }
 
 
         // ============ NAVEGACIÓN ============
         function switchTab(tabName) {
+            // Remove active from all tabs and tab-contents
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            
-            event.target.classList.add('active');
-            document.getElementById(`tab-${tabName}`).classList.add('active');
-            
+
+            // Mark the correct nav tab as active by matching onclick text
+            // Works both when called from onclick (event-driven) AND programmatically
+            document.querySelectorAll('.tab').forEach(t => {
+                const onclick = t.getAttribute('onclick') || '';
+                if (onclick.includes("'" + tabName + "'") || onclick.includes('"' + tabName + '"')) {
+                    t.classList.add('active');
+                }
+            });
+
+            // Show the target tab content
+            const tabContent = document.getElementById('tab-' + tabName);
+            if (tabContent) tabContent.classList.add('active');
+
             // Cargar datos cuando se cambia de tab
             if (tabName === 'clientes') loadClientes();
             if (tabName === 'proyectos') {
@@ -4496,12 +4594,30 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
         }
 
         async function generarTrialId() {
-            const trials = await getAllRecords('trials');
             const fecha = new Date();
-            const año = fecha.getFullYear().toString().substr(-2);
-            const mes = String(fecha.getMonth() + 1).padStart(2, '0');
-            const numero = String(trials.length + 1).padStart(4, '0');
-            return `TM-${año}${mes}-${numero}`;
+            const ano   = fecha.getFullYear().toString().substr(-2);
+            const mes   = String(fecha.getMonth() + 1).padStart(2, '0');
+
+            // Monotonic counter stored in localStorage - never goes down on delete
+            const KEY = 'trial_id_counter';
+            let counter = parseInt(localStorage.getItem(KEY) || '0');
+
+            // Scan existing records to ensure counter is above highest existing number
+            try {
+                const trials = await getAllRecords('trials');
+                trials.forEach(function(t) {
+                    var src = t.trialId || t.id || '';
+                    var m = String(src).match(/(\d{4})$/);
+                    if (m) {
+                        var n = parseInt(m[1]);
+                        if (n > counter) counter = n;
+                    }
+                });
+            } catch(e) { /* db may not be ready yet */ }
+
+            counter++;
+            localStorage.setItem(KEY, String(counter));
+            return 'TM-' + ano + mes + '-' + String(counter).padStart(4, '0');
         }
 
         async function cargarInfoMixDesign() {
@@ -7431,14 +7547,20 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
 
         // ============ UTILIDADES ============
         
-        function nuevoTrialMix() {
-            clearForm('trial');
-            document.getElementById('form-trial').reset();
-            generarTrialId().then(id => {
-                document.getElementById('trial-id-display').value = id;
-            });
-            document.getElementById('edit-trial-id').value = '';
-            alert('✅ Formulario listo para nuevo trial mix');
+        async function nuevoTrialMix() {
+            try {
+                clearForm('trial');
+                document.getElementById('form-trial').reset();
+                document.getElementById('edit-trial-id').value = '';
+                const trialId = await generarTrialId();
+                document.getElementById('trial-id-display').value = trialId;
+                document.getElementById('trial-fecha').valueAsDate = new Date();
+                generarCamposCilindros();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } catch(err) {
+                console.error('Error en nuevoTrialMix:', err);
+                alert('Error al crear nuevo Trial Mix: ' + err.message);
+            }
         }
 
         function clearForm(tipo) {
@@ -8245,7 +8367,7 @@ Responde ÚNICAMENTE con JSON válido (sin markdown) con esta estructura:
             const prompt = aiBuildPrompt(mix, gd, objetivo, exposicion, aplicacion, colocacion, origCF, origWF);
 
             try {
-                const response = await fetch("https://api.anthropic.com/v1/messages", {
+                const _resp = await fetch("https://api.anthropic.com/v1/messages", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
                     body: JSON.stringify({
@@ -8255,16 +8377,10 @@ Responde ÚNICAMENTE con JSON válido (sin markdown) con esta estructura:
                         messages: [{role: "user", content: prompt}]
                     })
                 });
-
-                if (!response.ok) {
-                    const err = await response.text();
-                    throw new Error(`API Error ${response.status}: ${err}`);
-                }
-
-                const data = await response.json();
+                if (!_resp.ok) { const _e = await _resp.text(); throw new Error("API Error " + _resp.status + ": " + _e); }
+                const _data = await _resp.json();
+                const rawText = _data.content.map(function(b){ return b.text||""; }).join("");
                 log(`Respuesta recibida. Procesando resultados...`);
-
-                const rawText = data.content.map(c => c.text||'').join('');
                 // Clean possible markdown fences
                 const cleanText = rawText.replace(/^```(?:json)?/gm,'').replace(/```$/gm,'').trim();
 
@@ -9375,7 +9491,7 @@ Sistema de Optimización AI de Concreto — ACI 211.1 / ACI 318 / ASTM C33 / Mé
         }
 
         // ---- KEEP OLD API VERSION AVAILABLE (now calls local) ----
-        async function ejecutarAIOptimizer() { ejecutarOptimizacionLocal(); }
+    
 
         // ============================================================
         // END AI OPTIMIZER MODULE
@@ -9842,9 +9958,1052 @@ Sistema de Optimización AI de Concreto — ACI 211.1 / ACI 318 / ASTM C33 / Mé
         }).catch(error => {
             console.error('❌ Error:', error);
         });
-    </script>
+    
+        function showToastV6(message, type) {
+            var existing = document.getElementById('toastV6');
+            if (existing) existing.remove();
+            var colors = {
+                success: { bg: 'rgba(16,185,129,0.15)', border: 'rgba(16,185,129,0.5)', text: '#10b981' },
+                error:   { bg: 'rgba(239,68,68,0.15)',  border: 'rgba(239,68,68,0.5)',  text: '#ef4444' },
+                info:    { bg: 'rgba(37,99,235,0.15)',  border: 'rgba(37,99,235,0.5)',  text: '#2563eb' }
+            };
+            var c = colors[type] || colors.info;
+            var toast = document.createElement('div');
+            toast.id = 'toastV6';
+            toast.style.cssText =
+                'position:fixed;bottom:2rem;right:2rem;z-index:99999;' +
+                'background:' + c.bg + ';border:1px solid ' + c.border + ';border-radius:12px;' +
+                'padding:0.85rem 1.4rem;color:' + c.text + ';font-weight:600;font-size:0.9rem;' +
+                'box-shadow:0 8px 24px rgba(0,0,0,0.25);max-width:400px;';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(function() {
+                toast.style.transition = 'opacity 0.4s';
+                toast.style.opacity = '0';
+                setTimeout(function() { if (toast.parentNode) toast.remove(); }, 400);
+            }, 4000);
+        }
+
+
+        // ═══════════════════════════════════════════════════════════════
+        //  GRADACIONES — DATABASE MODULE
+        // ═══════════════════════════════════════════════════════════════
+
+        const C33_SPECS = {
+            grueso: {
+                designaciones: [
+                    { id:'1',   label:'No.1  — 3½" a 1½"' },
+                    { id:'2',   label:'No.2  — 2½" a 1½"' },
+                    { id:'3',   label:'No.3  — 2" a 1"' },
+                    { id:'357', label:'No.357 — 2" a Nº4' },
+                    { id:'4',   label:'No.4  — 1½" a ¾"' },
+                    { id:'467', label:'No.467 — 1½" a Nº4' },
+                    { id:'5',   label:'No.5  — 1" a ½"' },
+                    { id:'56',  label:'No.56  — 1" a 3/8"' },
+                    { id:'57',  label:'No.57  — 1" a Nº4' },
+                    { id:'6',   label:'No.6  — ¾" a 3/8"' },
+                    { id:'67',  label:'No.67  — ¾" a Nº4' },
+                    { id:'7',   label:'No.7  — ½" a Nº4' },
+                    { id:'8',   label:'No.8  — 3/8" a Nº8' },
+                ],
+                tamices: ['3½"','3"','2½"','2"','1½"','1"','¾"','½"','3/8"','Nº4','Nº8','Nº16','Nº50','Nº100'],
+                limits: {
+                    '57': {'1½"':[100,100],'1"':[95,100],'½"':[25,60],'Nº4':[0,10],'Nº8':[0,5]},
+                    '67': {'1"':[100,100],'¾"':[90,100],'3/8"':[20,55],'Nº4':[0,10],'Nº8':[0,5]},
+                    '7':  {'½"':[100,100],'3/8"':[90,100],'Nº4':[40,70],'Nº8':[0,15]},
+                    '8':  {'3/8"':[100,100],'Nº4':[85,100],'Nº8':[10,30],'Nº16':[0,10]},
+                    '5':  {'1"':[100,100],'¾"':[90,100],'3/8"':[20,55],'Nº4':[0,10]},
+                    '56': {'1"':[100,100],'¾"':[90,100],'½"':[40,85],'3/8"':[10,40],'Nº4':[0,15],'Nº8':[0,5]},
+                    '6':  {'¾"':[100,100],'½"':[90,100],'3/8"':[20,55],'Nº4':[0,15]},
+                    '4':  {'1½"':[100,100],'1"':[90,100],'¾"':[20,55],'½"':[0,15],'Nº4':[0,5]},
+                    '3':  {'2"':[100,100],'1½"':[90,100],'1"':[35,70],'½"':[0,15],'Nº4':[0,5]},
+                    '467':{'1½"':[100,100],'1"':[95,100],'¾"':[35,70],'3/8"':[10,30],'Nº4':[0,5]},
+                    '357':{'2"':[100,100],'1½"':[95,100],'¾"':[35,70],'3/8"':[10,30],'Nº4':[0,5]},
+                    '1':  {'3½"':[100,100],'3"':[90,100],'2½"':[25,60],'1½"':[0,15]},
+                    '2':  {'2½"':[100,100],'2"':[90,100],'1½"':[35,70],'1"':[0,15]},
+                }
+            },
+            fino: {
+                designaciones: [{ id:'fino', label:'Arena — Agregado Fino C33' }],
+                tamices: ['3/8"','Nº4','Nº8','Nº16','Nº30','Nº50','Nº100','Nº200'],
+                limits: { 'fino': {'3/8"':[100,100],'Nº4':[95,100],'Nº8':[80,100],'Nº16':[50,85],'Nº30':[25,60],'Nº50':[5,30],'Nº100':[0,10]} }
+            },
+            intermedio: {
+                designaciones: [{ id:'intermedio', label:'Agregado Intermedio' }],
+                tamices: ['1"','¾"','½"','3/8"','Nº4','Nº8','Nº16','Nº30'],
+                limits: {}
+            },
+            base: {
+                designaciones: [{ id:'base', label:'Base Granular' }],
+                tamices: ['2"','1½"','1"','¾"','½"','3/8"','Nº4','Nº10','Nº40','Nº200'],
+                limits: {}
+            }
+        };
+
+        function getGradaciones() {
+            try { return JSON.parse(localStorage.getItem('gradaciones_db') || '[]'); } catch(e){ return []; }
+        }
+        function saveGradaciones(arr) { localStorage.setItem('gradaciones_db', JSON.stringify(arr)); }
+
+        function abrirFormGradacion(id) {
+            document.getElementById('modal-gradacion').style.display = 'block';
+            document.getElementById('grad-edit-id').value = '';
+            document.getElementById('modal-grad-title').textContent = 'Nueva Gradación';
+            limpiarFormGradacion();
+            if (id === undefined) return;
+            const g = getGradaciones().find(x => x.id === id);
+            if (!g) return;
+            document.getElementById('modal-grad-title').textContent = 'Editar — ' + g.nombre;
+            document.getElementById('grad-edit-id').value   = g.id;
+            document.getElementById('grad-nombre').value    = g.nombre    || '';
+            document.getElementById('grad-proveedor').value = g.proveedor || '';
+            document.getElementById('grad-fecha').value     = g.fecha     || '';
+            document.getElementById('grad-tecnico').value   = g.tecnico   || '';
+            document.getElementById('grad-gs').value        = g.gs        != null ? g.gs : '';
+            document.getElementById('grad-absorcion').value = g.absorcion != null ? g.absorcion : '';
+            document.getElementById('grad-humedad').value   = g.humedad   != null ? g.humedad : '';
+            document.getElementById('grad-puc').value       = g.puc       != null ? g.puc : '';
+            document.getElementById('grad-pus').value       = g.pus       != null ? g.pus : '';
+            document.getElementById('grad-mf').value        = g.mf        != null ? g.mf : '';
+            document.getElementById('grad-tma').value       = g.tma       || '';
+            document.getElementById('grad-desgaste').value  = g.desgaste  != null ? g.desgaste : '';
+            document.getElementById('grad-observaciones').value = g.observaciones || '';
+            document.getElementById('grad-tipo').value = g.tipo || '';
+            actualizarEspecsC33();
+            setTimeout(() => {
+                document.getElementById('grad-designacion').value = g.designacion || '';
+                generarTablaTamices();
+                setTimeout(() => {
+                    (g.sieveData || []).forEach(sv => {
+                        const el = document.getElementById('sv_' + sv.sieve.replace(/[^a-zA-Z0-9]/g,'_'));
+                        if (el) el.value = sv.pct;
+                    });
+                    calcularMFAuto();
+                    calcularVacios();
+                    verificarC33();
+                }, 60);
+            }, 60);
+        }
+
+        function cerrarModalGradacion() { document.getElementById('modal-gradacion').style.display = 'none'; }
+
+        function limpiarFormGradacion() {
+            ['grad-nombre','grad-proveedor','grad-fecha','grad-tecnico',
+             'grad-gs','grad-absorcion','grad-humedad','grad-puc','grad-pus',
+             'grad-mf','grad-tma','grad-desgaste','grad-observaciones','grad-vacios'
+            ].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+            const t = document.getElementById('grad-tipo'); if(t) t.value = '';
+            const d = document.getElementById('grad-designacion');
+            if(d) d.innerHTML = '<option value="">— Seleccionar tipo primero —</option>';
+            const tb = document.getElementById('tabla-tamices'); if(tb) tb.innerHTML = '';
+            const cc = document.getElementById('cumplimiento-c33'); if(cc) cc.innerHTML = '';
+        }
+
+        function actualizarEspecsC33() {
+            const tipo = document.getElementById('grad-tipo').value;
+            const sel  = document.getElementById('grad-designacion');
+            sel.innerHTML = '';
+            if (!tipo || !C33_SPECS[tipo]) {
+                sel.innerHTML = '<option value="">— Seleccionar tipo primero —</option>';
+                document.getElementById('tabla-tamices').innerHTML = '';
+                return;
+            }
+            C33_SPECS[tipo].designaciones.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.id; opt.textContent = d.label;
+                sel.appendChild(opt);
+            });
+            generarTablaTamices();
+        }
+
+        function generarTablaTamices() {
+            const tipo   = document.getElementById('grad-tipo').value;
+            const des    = document.getElementById('grad-designacion').value;
+            const cont   = document.getElementById('tabla-tamices');
+            if (!tipo || !C33_SPECS[tipo]) { cont.innerHTML = ''; return; }
+            const tamices = C33_SPECS[tipo].tamices;
+            const limits  = C33_SPECS[tipo].limits[des] || {};
+
+            let html = '<div style="display:grid;grid-template-columns:0.7fr 1fr 0.8fr 0.8fr;gap:0.3rem;margin-bottom:0.35rem;padding:0 0.2rem;">'
+                + '<span style="color:#8b92a8;font-size:0.77rem;font-weight:700;">TAMIZ</span>'
+                + '<span style="color:#8b92a8;font-size:0.77rem;font-weight:700;">% QUE PASA</span>'
+                + '<span style="color:#8b92a8;font-size:0.77rem;font-weight:700;">LÍM. INF.</span>'
+                + '<span style="color:#8b92a8;font-size:0.77rem;font-weight:700;">LÍM. SUP.</span>'
+                + '</div>';
+            tamices.forEach(t => {
+                const lim  = limits[t];
+                const safeId = 'sv_' + t.replace(/[^a-zA-Z0-9]/g,'_');
+                html += '<div style="display:grid;grid-template-columns:0.7fr 1fr 0.8fr 0.8fr;gap:0.3rem;align-items:center;padding:0.18rem 0;">'
+                    + '<span style="color:#e8eaed;font-size:0.88rem;font-weight:600;">' + t + '</span>'
+                    + '<input type="number" min="0" max="100" step="0.1" id="' + safeId + '" placeholder="—"'
+                    + ' oninput="calcularMFAuto();verificarC33();"'
+                    + ' style="padding:0.42rem 0.55rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#e8eaed;width:100%;box-sizing:border-box;">'
+                    + '<span style="color:#8b92a8;font-size:0.83rem;text-align:center;">' + (lim ? lim[0]+'%' : '—') + '</span>'
+                    + '<span style="color:#8b92a8;font-size:0.83rem;text-align:center;">' + (lim ? lim[1]+'%' : '—') + '</span>'
+                    + '</div>';
+            });
+            cont.innerHTML = html;
+            verificarC33();
+        }
+
+        function verificarC33() {
+            const tipo    = document.getElementById('grad-tipo').value;
+            const des     = document.getElementById('grad-designacion').value;
+            const box     = document.getElementById('cumplimiento-c33');
+            if (!tipo || !C33_SPECS[tipo]) { if(box) box.innerHTML=''; return; }
+            const limits  = C33_SPECS[tipo].limits[des] || {};
+            const tamices = C33_SPECS[tipo].tamices;
+            let issues = [], passes = 0, total = 0;
+            tamices.forEach(t => {
+                const lim = limits[t]; if (!lim) return;
+                const el  = document.getElementById('sv_' + t.replace(/[^a-zA-Z0-9]/g,'_'));
+                if (!el || el.value === '') return;
+                const val = parseFloat(el.value);
+                total++;
+                if (val >= lim[0] && val <= lim[1]) {
+                    passes++;
+                    el.style.borderColor = 'rgba(16,185,129,0.6)';
+                } else {
+                    issues.push(t + ': ' + val + '% (debe ser ' + lim[0] + '–' + lim[1] + '%)');
+                    el.style.borderColor = 'rgba(239,68,68,0.7)';
+                }
+            });
+            if (total === 0) { if(box) box.innerHTML=''; return; }
+            const pct = Math.round(passes/total*100);
+            const col = pct===100?'#10b981':pct>=70?'#f59e0b':'#ef4444';
+            const ico = pct===100?'✅':pct>=70?'⚠️':'❌';
+            if(box) box.innerHTML = '<div style="padding:0.5rem 0.8rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;">'
+                + '<strong style="color:'+col+';">'+ico+' Cumplimiento C33: '+pct+'% ('+passes+'/'+total+' tamices)</strong>'
+                + (issues.length?'<div style="margin-top:0.3rem;color:#ef4444;font-size:0.8rem;">Fuera de límite: '+issues.join(' · ')+'</div>':'')
+                + '</div>';
+        }
+
+        function calcularMFAuto() {
+            const tipo = document.getElementById('grad-tipo').value;
+            if (tipo !== 'fino') return;
+            const sievesMF = ['Nº4','Nº8','Nº16','Nº30','Nº50','Nº100'];
+            let sum = 0, count = 0;
+            sievesMF.forEach(t => {
+                const el = document.getElementById('sv_' + t.replace(/[^a-zA-Z0-9]/g,'_'));
+                if (!el || el.value === '') return;
+                sum += (100 - parseFloat(el.value));
+                count++;
+            });
+            if (count === 6) document.getElementById('grad-mf').value = (sum/100).toFixed(2);
+        }
+
+        function calcularVacios() {
+            const gs  = parseFloat(document.getElementById('grad-gs').value)  || 0;
+            const puc = parseFloat(document.getElementById('grad-puc').value) || 0;
+            const el  = document.getElementById('grad-vacios');
+            if (gs > 0 && puc > 0 && el)
+                el.value = ((1 - puc/(gs*62.4))*100).toFixed(1) + '%';
+            else if(el) el.value = '';
+        }
+
+        function guardarGradacion() {
+            const nombre = document.getElementById('grad-nombre').value.trim();
+            const tipo   = document.getElementById('grad-tipo').value;
+            if (!nombre) { alert('Ingresa el nombre del material.'); return; }
+            if (!tipo)   { alert('Selecciona el tipo de material.');  return; }
+
+            const des    = document.getElementById('grad-designacion').value;
+            const limits = C33_SPECS[tipo] ? (C33_SPECS[tipo].limits[des] || {}) : {};
+            const sieveData = [];
+            if (C33_SPECS[tipo]) {
+                C33_SPECS[tipo].tamices.forEach(t => {
+                    const el = document.getElementById('sv_' + t.replace(/[^a-zA-Z0-9]/g,'_'));
+                    if (el && el.value !== '') sieveData.push({ sieve: t, pct: parseFloat(el.value) });
+                });
+            }
+            let issues = 0;
+            sieveData.forEach(sv => {
+                const lim = limits[sv.sieve];
+                if (lim && (sv.pct < lim[0] || sv.pct > lim[1])) issues++;
+            });
+            const limCount = Object.keys(limits).length;
+            const cumpl = limCount > 0 ? Math.round((limCount-issues)/limCount*100) : null;
+
+            const arr    = getGradaciones();
+            const editId = document.getElementById('grad-edit-id').value;
+            const obj = {
+                id:           editId || ('GRAD-' + Date.now()),
+                nombre, tipo, designacion: des,
+                proveedor:    document.getElementById('grad-proveedor').value,
+                fecha:        document.getElementById('grad-fecha').value,
+                tecnico:      document.getElementById('grad-tecnico').value,
+                gs:           parseFloat(document.getElementById('grad-gs').value)       || null,
+                absorcion:    parseFloat(document.getElementById('grad-absorcion').value) || null,
+                humedad:      parseFloat(document.getElementById('grad-humedad').value)   || null,
+                puc:          parseFloat(document.getElementById('grad-puc').value)       || null,
+                pus:          parseFloat(document.getElementById('grad-pus').value)       || null,
+                mf:           parseFloat(document.getElementById('grad-mf').value)        || null,
+                tma:          document.getElementById('grad-tma').value,
+                desgaste:     parseFloat(document.getElementById('grad-desgaste').value)  || null,
+                observaciones:document.getElementById('grad-observaciones').value,
+                sieveData, cumplimiento: cumpl,
+                fechaCreacion: editId ? undefined : new Date().toISOString()
+            };
+
+            if (editId) {
+                const idx = arr.findIndex(x => x.id === editId);
+                if (idx >= 0) arr[idx] = obj; else arr.push(obj);
+            } else { arr.push(obj); }
+            saveGradaciones(arr);
+            cerrarModalGradacion();
+            renderGradaciones();
+        }
+
+        function eliminarGradacion(id) {
+            if (!confirm('¿Eliminar esta gradación?')) return;
+            saveGradaciones(getGradaciones().filter(x => x.id !== id));
+            renderGradaciones();
+        }
+
+        function filtrarGradaciones() { renderGradaciones(); }
+
+        function renderGradaciones() {
+            let arr  = getGradaciones();
+            const ft = document.getElementById('filtro-tipo-grad');
+            const fb = document.getElementById('buscar-grad');
+            if (ft && ft.value) arr = arr.filter(x => x.tipo === ft.value);
+            if (fb && fb.value) arr = arr.filter(x => x.nombre.toLowerCase().includes(fb.value.toLowerCase()));
+            const cont = document.getElementById('lista-gradaciones');
+            if (!cont) return;
+            if (arr.length === 0) {
+                cont.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:3rem;color:#8b92a8;"><div style="font-size:3rem;">🪨</div><p style="margin-top:1rem;">No hay gradaciones registradas.</p></div>';
+                return;
+            }
+            const tColors = { grueso:'#f59e0b', fino:'#06b6d4', intermedio:'#8b5cf6', base:'#10b981' };
+            const tLabels = { grueso:'Ag. Grueso', fino:'Ag. Fino', intermedio:'Intermedio', base:'Base' };
+            cont.innerHTML = arr.map(g => {
+                const tc   = tColors[g.tipo]||'#8b92a8';
+                const tl   = tLabels[g.tipo]||g.tipo;
+                const cp   = g.cumplimiento;
+                const cpC  = cp===null?'#8b92a8':cp===100?'#10b981':cp>=70?'#f59e0b':'#ef4444';
+                const cpL  = cp===null?'Sin datos C33':cp+'% C33';
+                const props = [];
+                if(g.gs)       props.push('Gs='+g.gs);
+                if(g.absorcion)props.push('Abs='+g.absorcion+'%');
+                if(g.mf)       props.push('MF='+g.mf);
+                if(g.tma)      props.push('TMA='+g.tma+'"');
+                if(g.desgaste) props.push('LA='+g.desgaste+'%');
+                if(g.puc)      props.push('PUC='+g.puc);
+                const sieveHtml = g.sieveData && g.sieveData.length
+                    ? '<div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.6rem;">'
+                      + g.sieveData.map(sv=>'<span style="background:rgba(255,255,255,0.06);border-radius:4px;padding:0.15rem 0.45rem;font-size:0.77rem;color:#e8eaed;">'+sv.sieve+': <b>'+sv.pct+'%</b></span>').join('')
+                      + '</div>' : '';
+                return '<div style="background:var(--bg-card);border:1px solid var(--border);border-top:3px solid '+tc+';border-radius:12px;padding:1rem;">'
+                    + '<div style="display:flex;align-items:flex-start;gap:0.6rem;margin-bottom:0.7rem;">'
+                    + '<span style="background:rgba(255,255,255,0.07);border-radius:6px;padding:0.3rem 0.6rem;font-size:0.77rem;font-weight:700;color:'+tc+';white-space:nowrap;">'+tl+'</span>'
+                    + '<div style="flex:1;"><div style="font-weight:700;color:#e8eaed;">'+g.nombre+'</div>'
+                    + '<div style="color:#8b92a8;font-size:0.8rem;">'+(g.proveedor||'Sin proveedor')+(g.fecha?' · '+g.fecha:'')+'</div></div>'
+                    + '<span style="background:rgba(255,255,255,0.04);border-radius:5px;padding:0.25rem 0.55rem;color:'+cpC+';font-size:0.77rem;font-weight:700;white-space:nowrap;">'+cpL+'</span>'
+                    + '</div>'
+                    + (props.length?'<div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.4rem;">'+props.map(p=>'<span style="background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);border-radius:4px;padding:0.15rem 0.45rem;font-size:0.78rem;color:#a5b4fc;">'+p+'</span>').join('')+'</div>':'')
+                    + sieveHtml
+                    + '<div style="display:flex;gap:0.4rem;margin-top:0.8rem;">'
+                    + '<button onclick="abrirFormGradacion(\''+g.id+'\')" style="flex:1;padding:0.4rem;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);border-radius:6px;color:#a5b4fc;cursor:pointer;font-size:0.82rem;">✏️ Editar</button>'
+                    + '<button onclick="reporteUnaGradacion(\''+g.id+'\')" style="flex:1;padding:0.4rem;background:rgba(0,212,170,0.1);border:1px solid rgba(0,212,170,0.2);border-radius:6px;color:#00d4aa;cursor:pointer;font-size:0.82rem;">📄 PDF</button>'
+                    
+                    + '<button onclick="eliminarGradacion(\''+g.id+'\')" style="padding:0.4rem 0.6rem;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:6px;color:#ef4444;cursor:pointer;font-size:0.82rem;">🗑️</button>'
+                    + '</div></div>';
+            }).join('');
+        }
+
+        // ── PDF ──────────────────────────────────────────────────────────
+        async function reporteUnaGradacion(id) {
+            const g = getGradaciones().find(x => x.id === id);
+            if (g) await pdfGradaciones([g], 'Reporte — ' + g.nombre);
+        }
+        async function generarReporteGradaciones() {
+            const arr = getGradaciones();
+            if (!arr.length) { alert('No hay gradaciones guardadas.'); return; }
+            await pdfGradaciones(arr, 'Reporte de Gradaciones');
+        }
+
+        async function pdfGradaciones(arr, titulo) {
+            const { jsPDF } = window.jspdf;
+            const pdf   = new jsPDF('p','mm','a4');
+            const pw    = pdf.internal.pageSize.width;
+            const ph    = pdf.internal.pageSize.height;
+            const M     = 18;      // margin
+            const colW  = pw - 2*M;
+
+            // ── helpers ────────────────────────────────────────────────
+            function fill(x,y,w,h,r,g2,b){ pdf.setFillColor(r,g2,b); pdf.rect(x,y,w,h,'F'); }
+            function border(x,y,w,h,r,g2,b,lw){ pdf.setDrawColor(r,g2,b); pdf.setLineWidth(lw||0.4); pdf.rect(x,y,w,h,'S'); }
+            function checkY(need){ if(yPos+need > ph-18){ pdf.addPage(); yPos=22; } }
+            function row2(r,g2,b,l1,v1,l2,v2,ri){
+                checkY(7);
+                fill(M,yPos,colW,7, ri%2===0?250:244, ri%2===0?252:248, ri%2===0?250:248);
+                pdf.setFontSize(7.5);
+                pdf.setTextColor(100,100,100); pdf.text(l1+':', M+3, yPos+5);
+                pdf.setTextColor(0,100,80);    pdf.text(String(v1||'—'), M+50, yPos+5);
+                if(l2!==undefined){
+                    pdf.setTextColor(100,100,100); pdf.text(l2+':', M+colW/2+3, yPos+5);
+                    pdf.setTextColor(0,100,80);    pdf.text(String(v2||'—'), M+colW/2+50, yPos+5);
+                }
+                yPos+=7;
+            }
+
+            // ── PAGE HEADER ────────────────────────────────────────────
+            async function makeHeader(t, sub) {
+                fill(0,0,pw,52, 255,255,255);
+                fill(0,0,5,52, 0,170,140);
+                pdf.setDrawColor(0,170,140); pdf.setLineWidth(0.8); pdf.line(0,52,pw,52);
+                // Logo
+                if (typeof logoEmpresa !== 'undefined' && logoEmpresa) {
+                    try {
+                        const fmt = logoEmpresa.startsWith('data:image/jpeg')?'JPEG':
+                                    logoEmpresa.startsWith('data:image/webp')?'WEBP':'PNG';
+                        pdf.addImage(logoEmpresa, fmt, 9, 10, 28, 28);
+                    } catch(e){}
+                }
+                pdf.setFontSize(15); pdf.setTextColor(0,120,100);
+                pdf.text(t, 44, 22);
+                pdf.setFontSize(9); pdf.setTextColor(80,80,80);
+                const d = new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'});
+                pdf.text(sub + '   ·   ' + d, 44, 32);
+                return 60;
+            }
+
+            // ── FOOTER ─────────────────────────────────────────────────
+            function footer(pg, tot) {
+                pdf.setDrawColor(0,170,140); pdf.setLineWidth(0.4);
+                pdf.line(M, ph-12, pw-M, ph-12);
+                pdf.setFontSize(7.5); pdf.setTextColor(100,100,100);
+                pdf.text('Análisis Granulométrico — ASTM C33', M, ph-6);
+                pdf.setTextColor(0,130,110);
+                pdf.text('Pág. '+pg+' / '+tot, pw-M-16, ph-6);
+            }
+
+            // ── GRANULOMETRY CHART (drawn with jsPDF lines/points) ─────
+            // Returns height used
+            function drawGradChart(g, xOrig, yOrig, chartW, chartH) {
+                const tipo   = g.tipo;
+                const des    = g.designacion;
+                const spec   = C33_SPECS[tipo];
+                if (!spec || !g.sieveData || g.sieveData.length < 2) return 0;
+
+                const limits = spec.limits[des] || {};
+                const allSieves = spec.tamices;
+
+                // Build x-axis: index of each sieve  
+                const n = allSieves.length;
+                const xStep = chartW / Math.max(n - 1, 1);
+
+                function xAt(i){ return xOrig + i * xStep; }
+                function yAt(pct){ return yOrig + chartH - (pct / 100) * chartH; }
+
+                // Background
+                fill(xOrig, yOrig, chartW, chartH, 248,252,250);
+                border(xOrig, yOrig, chartW, chartH, 200,220,215, 0.3);
+
+                // Grid lines horizontal at 0,20,40,60,80,100%
+                pdf.setDrawColor(210,225,220); pdf.setLineWidth(0.2);
+                [0,20,40,60,80,100].forEach(p => {
+                    const y = yAt(p);
+                    pdf.line(xOrig, y, xOrig+chartW, y);
+                    pdf.setFontSize(5.5); pdf.setTextColor(140,160,155);
+                    pdf.text(p+'%', xOrig-7, y+1.5);
+                });
+
+                // C33 limit band (filled area between min and max)
+                const limPoints = allSieves.map((s,i) => {
+                    const lim = limits[s];
+                    return { i, lo: lim?lim[0]:null, hi: lim?lim[1]:null };
+                }).filter(p => p.lo !== null);
+
+                if (limPoints.length >= 2) {
+                    // Upper limit line
+                    pdf.setDrawColor(255,160,0); pdf.setLineWidth(0.6);
+                    for(let k=0; k<limPoints.length-1; k++){
+                        pdf.line(xAt(limPoints[k].i), yAt(limPoints[k].hi),
+                                 xAt(limPoints[k+1].i), yAt(limPoints[k+1].hi));
+                    }
+                    // Lower limit line
+                    pdf.setDrawColor(255,100,0); pdf.setLineWidth(0.6);
+                    for(let k=0; k<limPoints.length-1; k++){
+                        pdf.line(xAt(limPoints[k].i), yAt(limPoints[k].lo),
+                                 xAt(limPoints[k+1].i), yAt(limPoints[k+1].lo));
+                    }
+                    // Shade band
+                    pdf.setFillColor(255,200,100); pdf.setGState && pdf.setGState(pdf.GState({opacity:0.15}));
+                    // Draw as filled rectangles between curves (approximate)
+                    for(let k=0; k<limPoints.length-1; k++){
+                        const x1=xAt(limPoints[k].i), x2=xAt(limPoints[k+1].i);
+                        const yhi1=yAt(limPoints[k].hi), yhi2=yAt(limPoints[k+1].hi);
+                        const ylo1=yAt(limPoints[k].lo), ylo2=yAt(limPoints[k+1].lo);
+                        // Draw thin fill strips
+                        for(let strip=0; strip<10; strip++){
+                            const t1 = strip/10, t2=(strip+1)/10;
+                            const xs1 = x1+(x2-x1)*t1, xs2 = x1+(x2-x1)*t2;
+                            const yh  = yhi1+(yhi2-yhi1)*t1;
+                            const yl  = ylo1+(ylo2-ylo1)*t1;
+                            pdf.setFillColor(255,220,150);
+                            pdf.rect(xs1, yh, xs2-xs1, yl-yh, 'F');
+                        }
+                    }
+                    try{ pdf.setGState && pdf.setGState(pdf.GState({opacity:1.0})); } catch(e){}
+                }
+
+                // Measured curve
+                const measured = g.sieveData.map(sv => {
+                    const i = allSieves.indexOf(sv.sieve);
+                    return i >= 0 ? { i, pct: sv.pct } : null;
+                }).filter(Boolean).sort((a,b) => a.i - b.i);
+
+                if (measured.length >= 2) {
+                    pdf.setDrawColor(0,160,130); pdf.setLineWidth(1.0);
+                    for(let k=0; k<measured.length-1; k++){
+                        pdf.line(xAt(measured[k].i),   yAt(measured[k].pct),
+                                 xAt(measured[k+1].i), yAt(measured[k+1].pct));
+                    }
+                    // Dots
+                    measured.forEach(pt => {
+                        const lim = limits[allSieves[pt.i]];
+                        const ok  = !lim || (pt.pct>=lim[0] && pt.pct<=lim[1]);
+                        pdf.setFillColor(ok ? 0:220, ok?160:50, ok?120:50);
+                        pdf.circle(xAt(pt.i), yAt(pt.pct), 1.0, 'F');
+                    });
+                }
+
+                // X-axis labels (sieve names)
+                pdf.setFontSize(5.2); pdf.setTextColor(60,80,75);
+                allSieves.forEach((s,i) => {
+                    const x = xAt(i);
+                    pdf.line(x, yOrig+chartH, x, yOrig+chartH+2);
+                    // Rotate label
+                    pdf.text(s, x, yOrig+chartH+7, { angle: 45 });
+                });
+
+                // Title
+                pdf.setFontSize(7); pdf.setTextColor(0,120,100);
+                pdf.text('% que Pasa', xOrig-14, yOrig - 2);
+
+                // Legend
+                const lx = xOrig + chartW - 60;
+                const ly = yOrig + 4;
+                fill(lx-1, ly-2, 62, 18, 248,252,250);
+                border(lx-1, ly-2, 62, 18, 180,210,200, 0.3);
+                // Green line
+                pdf.setDrawColor(0,160,130); pdf.setLineWidth(1.0);
+                pdf.line(lx, ly+3, lx+8, ly+3);
+                pdf.setFillColor(0,160,130); pdf.circle(lx+4, ly+3, 1, 'F');
+                pdf.setFontSize(5.5); pdf.setTextColor(50,50,50);
+                pdf.text('Gradación medida', lx+10, ly+5);
+                // Orange dashed
+                pdf.setDrawColor(255,160,0); pdf.setLineWidth(0.6);
+                pdf.line(lx, ly+10, lx+8, ly+10);
+                pdf.text('Límite sup. C33', lx+10, ly+12);
+                // Red dashed
+                pdf.setDrawColor(255,100,0); pdf.setLineWidth(0.6);
+                pdf.line(lx, ly+16, lx+8, ly+16);
+                pdf.text('Límite inf. C33', lx+10, ly+18);
+
+                return chartH + 16;  // total height including x-axis labels
+            }
+
+            // ══════════════════════════════════════════════════════════
+            //  MAIN RENDER LOOP
+            // ══════════════════════════════════════════════════════════
+            let yPos = await makeHeader(titulo, arr.length + ' material(es)');
+            const tLabels = { grueso:'Ag. Grueso', fino:'Ag. Fino', intermedio:'Ag. Intermedio', base:'Base Granular' };
+
+            for (let gi = 0; gi < arr.length; gi++) {
+                const g = arr[gi];
+                if (gi > 0) { pdf.addPage(); yPos = 22; }
+
+                // ── Section title bar ──────────────────────────────────
+                fill(M, yPos, colW, 11, 0,140,120);
+                pdf.setFontSize(11); pdf.setTextColor(255,255,255);
+                pdf.text((tLabels[g.tipo]||g.tipo||'Material') + '  —  ' + g.nombre, M+4, yPos+7.5);
+                yPos += 14;
+
+                // ── Identification ─────────────────────────────────────
+                checkY(10);
+                fill(M, yPos, colW, 8, 230,248,244);
+                pdf.setFontSize(9); pdf.setTextColor(0,110,90);
+                pdf.text('Identificación', M+4, yPos+5.5);
+                yPos += 9;
+                [
+                  ['Proveedor / Cantera', g.proveedor, 'Fecha de Ensayo', g.fecha],
+                  ['Técnico',             g.tecnico,   'Designación C33', g.designacion],
+                  ['TMA',                 g.tma ? g.tma+' pulg' : null, 'Observaciones', (g.observaciones||'').slice(0,45)]
+                ].forEach((r,ri) => row2(null,null,null, r[0],r[1], r[2],r[3], ri));
+                yPos += 5;
+
+                // ── Physical properties ────────────────────────────────
+                checkY(10);
+                fill(M, yPos, colW, 8, 230,248,244);
+                pdf.setFontSize(9); pdf.setTextColor(0,110,90);
+                pdf.text('Propiedades Físicas', M+4, yPos+5.5);
+                yPos += 9;
+                [
+                  ['Gravedad Específica (Gs)', g.gs, 'Absorción (%)', g.absorcion!=null?g.absorcion+'%':null],
+                  ['Humedad (%)', g.humedad!=null?g.humedad+'%':null, 'Módulo de Finura (MF)', g.mf],
+                  ['PU Compactado (lb/ft³)',   g.puc, 'PU Suelto (lb/ft³)', g.pus],
+                  ['Desgaste Los Ángeles (%)', g.desgaste!=null?g.desgaste+'%':null, 'Cumplimiento C33', g.cumplimiento!=null?g.cumplimiento+'%':'N/A']
+                ].forEach((r,ri) => row2(null,null,null, r[0],r[1], r[2],r[3], ri));
+                yPos += 5;
+
+                // ── Sieve analysis table WITH C33 limits ──────────────
+                if (g.sieveData && g.sieveData.length > 0) {
+                    checkY(14);
+                    fill(M, yPos, colW, 8, 230,248,244);
+                    pdf.setFontSize(9); pdf.setTextColor(0,110,90);
+                    pdf.text('Análisis Granulométrico — % que Pasa  (ASTM C33)', M+4, yPos+5.5);
+                    yPos += 9;
+
+                    // Table header
+                    const cw = [22, 28, 26, 26, 20, 22, 28];
+                    fill(M, yPos, colW, 8, 0,150,130);
+                    pdf.setFontSize(7.5); pdf.setTextColor(255,255,255);
+                    let xc = M+2;
+                    ['Tamiz','% Pasa','Lím.Inf.','Lím.Sup.','Cumple','Ret. Ind.%','Ret. Acum.%'].forEach((h,i)=>{
+                        pdf.text(h, xc, yPos+5.5); xc += cw[i];
+                    });
+                    yPos += 8;
+
+                    const lims  = C33_SPECS[g.tipo] ? (C33_SPECS[g.tipo].limits[g.designacion]||{}) : {};
+                    let retAcum = 0;
+                    g.sieveData.forEach((sv, ri) => {
+                        checkY(7);
+                        fill(M, yPos, colW, 7, ri%2===0?250:244, ri%2===0?252:248, ri%2===0?250:248);
+                        const lim  = lims[sv.sieve];
+                        const ok   = !lim || (sv.pct >= lim[0] && sv.pct <= lim[1]);
+                        const retI = ri === 0 ? (100 - sv.pct) : (g.sieveData[ri-1].pct - sv.pct);
+                        retAcum   += Math.max(retI, 0);
+                        pdf.setFontSize(7.5);
+                        xc = M+2;
+                        const vals = [
+                            sv.sieve,
+                            sv.pct.toFixed(1)+'%',
+                            lim ? lim[0]+'%' : '—',
+                            lim ? lim[1]+'%' : '—',
+                            lim ? (ok ? '✓' : '✗') : '—',
+                            Math.max(retI,0).toFixed(1)+'%',
+                            retAcum.toFixed(1)+'%'
+                        ];
+                        vals.forEach((v,i) => {
+                            if (i===4 && lim) pdf.setTextColor(ok?0:210, ok?130:40, ok?80:0);
+                            else pdf.setTextColor(40,40,40);
+                            pdf.text(v, xc, yPos+5);
+                            xc += cw[i];
+                        });
+                        yPos += 7;
+                    });
+                    yPos += 5;
+
+                    // ── Granulometry CHART ─────────────────────────────
+                    const chartH = 60;
+                    const chartW = colW - 18;
+                    checkY(chartH + 30);
+                    fill(M, yPos, colW, 8, 230,248,244);
+                    pdf.setFontSize(9); pdf.setTextColor(0,110,90);
+                    pdf.text('Curva Granulométrica  —  ASTM C33 ' + (g.designacion ? 'No.'+g.designacion : ''), M+4, yPos+5.5);
+                    yPos += 10;
+
+                    const chartUsed = drawGradChart(g, M+16, yPos, chartW, chartH);
+                    yPos += chartUsed + 8;
+                }
+
+                // ── Compliance summary ─────────────────────────────────
+                if (g.cumplimiento !== null && g.cumplimiento !== undefined) {
+                    checkY(10);
+                    const cp = g.cumplimiento;
+                    const cr = cp===100?[0,160,120]:cp>=70?[200,140,0]:[200,60,60];
+                    fill(M, yPos, colW, 9, cp===100?235:cp>=70?255:255, cp===100?250:cp>=70?245:235, cp===100?245:cp>=70?220:235);
+                    pdf.setFontSize(9);
+                    pdf.setTextColor(cr[0],cr[1],cr[2]);
+                    const icon = cp===100?'✓ CUMPLE 100%':cp>=70?'⚠ Cumplimiento parcial: '+cp+'%':'✗ No cumple: '+cp+'%';
+                    pdf.text('Cumplimiento ASTM C33: ' + icon, M+4, yPos+6);
+                    yPos += 12;
+                }
+            }
+
+            // Footers on all pages
+            const tot = pdf.internal.getNumberOfPages();
+            for (let p = 1; p <= tot; p++) { pdf.setPage(p); footer(p, tot); }
+
+            pdf.save('Gradaciones_' + new Date().toISOString().slice(0,10) + '.pdf');
+        }
+
+        // ── AI ───────────────────────────────────────────────────────────
+
+        // Hook into switchTab to load gradaciones when tab activates
+        document.addEventListener('DOMContentLoaded', function() {
+            const origST = switchTab;
+            window.switchTab = function(tabName) {
+                origST(tabName);
+                if (tabName === 'gradaciones') renderGradaciones();
+            };
+        });
+
+
+        // ═══════════════════════════════════════════════════════════════
+        //  EXPORTAR ROTURAS — MODAL CON SELECCIÓN DE MEZCLAS
+        // ═══════════════════════════════════════════════════════════════
+
+        let _rotMixData = [];  // cached full processed mix data for modal
+
+        async function abrirModalExportRoturas() {
+            document.getElementById('modal-export-roturas').style.display = 'block';
+            document.getElementById('rot-mix-list').innerHTML =
+                '<div style="padding:2rem;text-align:center;color:#8b92a8;">&#x23F3; Cargando mezclas...</div>';
+            document.getElementById('rot-summary').textContent = 'Calculando...';
+            document.getElementById('rot-search').value = '';
+
+            try {
+                const trials    = await getAllRecords('trials');
+                const mixes     = await getAllRecords('mixdesigns');
+                const clientes  = await getAllRecords('clientes');
+                const proyectos = await getAllRecords('proyectos');
+
+                const mixMap = {};
+
+                trials.forEach(function(trial) {
+                    if (!trial.cilindros || trial.cilindros.length === 0) return;
+                    const mixDesign = mixes.find(function(m) { return m.id === trial.mixDesignId; });
+                    if (!mixDesign) return;
+                    const key = trial.mixDesignId;
+
+                    if (!mixMap[key]) {
+                        const cliente  = clientes.find(function(cl) { return cl.id == mixDesign.clienteId; });
+                        const proyecto = proyectos.find(function(p)  { return p.id == mixDesign.proyectoId; });
+                        const r = mixDesign.resultados || {};
+
+                        const pesoCemento    = parseFloat(mixDesign.pesoCemento)    || (r.cemento     ? r.cemento.peso     : 0) || 0;
+                        const scm1Tipo       = mixDesign.tipoSCM1 || '';
+                        const scm1Peso       = parseFloat(mixDesign.pesoSCM1)       || (r.scm1        ? r.scm1.peso        : 0) || 0;
+                        const scm2Tipo       = mixDesign.tipoSCM2 || '';
+                        const scm2Peso       = parseFloat(mixDesign.pesoSCM2)       || (r.scm2        ? r.scm2.peso        : 0) || 0;
+                        const scm3Tipo       = mixDesign.tipoSCM3 || '';
+                        const scm3Peso       = parseFloat(mixDesign.pesoSCM3)       || (r.scm3        ? r.scm3.peso        : 0) || 0;
+                        const pesoGrueso     = parseFloat(mixDesign.pesoGrueso)     || (r.grueso      ? r.grueso.peso      : 0) || 0;
+                        const pesoIntermedio = parseFloat(mixDesign.pesoIntermedio) || (r.intermedio  ? r.intermedio.peso  : 0) || 0;
+                        const pesoArena1     = (r.arena1 ? r.arena1.peso : 0) || 0;
+                        const pesoArena2     = (r.arena2 ? r.arena2.peso : 0) || 0;
+                        const pesoAgua       = parseFloat(mixDesign.pesoAgua)       || (r.agua        ? r.agua.peso        : 0) || 0;
+                        const mixIdStr       = mixDesign.mixId || ('MIX-' + String(mixDesign.id).padStart(4, '0'));
+
+                        mixMap[key] = {
+                            id:           mixIdStr,
+                            _mixKey:      key,
+                            _clientName:  cliente  ? cliente.nombre  : '',
+                            _projectName: proyecto ? proyecto.nombre : '',
+                            project:      (proyecto ? proyecto.nombre : '') || mixDesign.nombre || '',
+                            contractor:   (cliente  ? cliente.nombre  : '') || '',
+                            plant:        mixDesign.planta || '',
+                            description:  mixDesign.nombre + (mixDesign.aplicacion ? ' - ' + mixDesign.aplicacion : ''),
+                            qcManager:    mixDesign.responsable || '',
+                            specStrength: mixDesign.resistencia || 0,
+                            requiredAge:  28,
+                            materials: {
+                                cement:          pesoCemento,
+                                cementSupplier:  mixDesign.tipoCemento || '',
+                                scm1Type:        scm1Tipo, scm1Weight: scm1Peso, scm1Supplier: '',
+                                scm2Type:        scm2Tipo, scm2Weight: scm2Peso, scm2Supplier: '',
+                                scm3Type:        scm3Tipo, scm3Weight: scm3Peso, scm3Supplier: '',
+                                coarseAgg:       pesoGrueso + pesoIntermedio, coarseAggSupplier: '',
+                                manSand:         pesoArena1, manSandSupplier: '',
+                                natSand:         pesoArena2, natSandSupplier: '',
+                                water:           pesoAgua
+                            },
+                            tests: []
+                        };
+                    }
+
+                    const ageMap = {};
+                    trial.cilindros.forEach(function(cil) {
+                        const age = parseInt(cil.diasCurado) || 28;
+                        const res = parseFloat(cil.resistencia) || 0;
+                        if (res <= 0) return;
+                        if (!ageMap[age]) ageMap[age] = [];
+                        ageMap[age].push(res);
+                    });
+
+                    const ages = Object.keys(ageMap)
+                        .sort(function(a,b){ return parseInt(a)-parseInt(b); })
+                        .map(function(age){ return { age: parseInt(age), strengths: ageMap[age] }; })
+                        .filter(function(a){ return a.strengths.length > 0; });
+
+                    if (ages.length > 0) {
+                        mixMap[key].tests.push({
+                            date:  trial.fecha || new Date().toISOString().slice(0,10),
+                            slump: parseFloat(trial.slump) || 0,
+                            ages:  ages
+                        });
+                    }
+                });
+
+                // Only keep mixes that have tests
+                _rotMixData = Object.values(mixMap).filter(function(m){ return m.tests.length > 0; });
+
+                // Populate client filter
+                const clientSel = document.getElementById('rot-filter-client');
+                clientSel.innerHTML = '<option value="">Todos los clientes</option>';
+                const uniqueClients = [...new Set(_rotMixData.map(m => m._clientName).filter(Boolean))];
+                uniqueClients.forEach(function(cn) {
+                    const opt = document.createElement('option');
+                    opt.value = cn; opt.textContent = cn;
+                    clientSel.appendChild(opt);
+                });
+
+                renderRotMixList(_rotMixData);
+
+            } catch(err) {
+                document.getElementById('rot-mix-list').innerHTML =
+                    '<div style="padding:2rem;text-align:center;color:#ef4444;">Error: ' + err.message + '</div>';
+            }
+        }
+
+        function cerrarModalExportRoturas() {
+            document.getElementById('modal-export-roturas').style.display = 'none';
+        }
+
+        function renderRotMixList(arr) {
+            const cont = document.getElementById('rot-mix-list');
+            if (!arr.length) {
+                cont.innerHTML = '<div style="padding:2rem;text-align:center;color:#8b92a8;">No hay mezclas con cilindros de resistencia registrados.</div>';
+                actualizarResumenRot();
+                return;
+            }
+            cont.innerHTML = arr.map(function(m) {
+                const totalCils = m.tests.reduce(function(s,t){
+                    return s + t.ages.reduce(function(sa,a){ return sa + a.strengths.length; }, 0);
+                }, 0);
+                const ages = [...new Set(m.tests.flatMap(function(t){ return t.ages.map(function(a){ return a.age; }); }))].sort(function(a,b){return a-b;});
+                return '<label id="rot-lbl-' + m._mixKey + '" style="display:flex;align-items:flex-start;gap:0.75rem;padding:0.8rem 1rem;border-bottom:1px solid rgba(255,255,255,0.06);cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background=\'rgba(255,255,255,0.04)\'" onmouseout="this.style.background=\'transparent\'">'
+                    + '<input type="checkbox" class="rot-chk" data-key="' + m._mixKey + '" checked onchange="actualizarResumenRot()" style="margin-top:3px;width:16px;height:16px;accent-color:#00d4aa;cursor:pointer;flex-shrink:0;">'
+                    + '<div style="flex:1;">'
+                    + '<div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">'
+                    + '<span style="font-weight:700;color:#e8eaed;">' + m.id + '</span>'
+                    + '<span style="color:#00d4aa;font-size:0.82rem;">' + m.description + '</span>'
+                    + '</div>'
+                    + '<div style="color:#8b92a8;font-size:0.79rem;margin-top:0.2rem;">'
+                    + (m._clientName ? m._clientName + '  ·  ' : '') + (m._projectName ? m._projectName + '  ·  ' : '')
+                    + m.tests.length + ' trial(s)  ·  '
+                    + totalCils + ' cilindro(s)  ·  Edades: ' + ages.join(', ') + ' días'
+                    + '</div>'
+                    + '<div style="margin-top:0.3rem;">'
+                    + '<span style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);border-radius:4px;padding:0.15rem 0.5rem;font-size:0.75rem;color:#a5b4fc;">' + m.specStrength + ' PSI</span>'
+                    + (m.contractor ? ' <span style="background:rgba(255,255,255,0.06);border-radius:4px;padding:0.15rem 0.5rem;font-size:0.75rem;color:#8b92a8;">' + m.contractor + '</span>' : '')
+                    + '</div>'
+                    + '</div></label>';
+            }).join('');
+            actualizarResumenRot();
+        }
+
+        function filtrarMixesExport() {
+            const q  = (document.getElementById('rot-search').value || '').toLowerCase();
+            const cl = (document.getElementById('rot-filter-client').value || '').toLowerCase();
+            const filtered = _rotMixData.filter(function(m) {
+                const matchQ  = !q  || m.description.toLowerCase().includes(q) || m.id.toLowerCase().includes(q) || (m._projectName||'').toLowerCase().includes(q);
+                const matchCl = !cl || (m._clientName||'').toLowerCase() === cl;
+                return matchQ && matchCl;
+            });
+            renderRotMixList(filtered);
+        }
+
+        function rotSelectAll(val) {
+            document.querySelectorAll('.rot-chk').forEach(function(chk){ chk.checked = val; });
+            actualizarResumenRot();
+        }
+
+        function actualizarResumenRot() {
+            const selected = [...document.querySelectorAll('.rot-chk:checked')].map(function(c){ return c.dataset.key; });
+            const bar = document.getElementById('rot-summary');
+            if (!bar) return;
+            if (!selected.length) {
+                bar.innerHTML = '<span style="color:#ef4444;">&#x26A0;&#xFE0F; Selecciona al menos una mezcla.</span>';
+                return;
+            }
+            const selMixes = _rotMixData.filter(function(m){ return selected.includes(String(m._mixKey)); });
+            const totalTrials = selMixes.reduce(function(s,m){ return s+m.tests.length; }, 0);
+            const totalCils   = selMixes.reduce(function(s,m){
+                return s + m.tests.reduce(function(st,t){
+                    return st + t.ages.reduce(function(sa,a){ return sa+a.strengths.length; }, 0);
+                }, 0);
+            }, 0);
+            bar.innerHTML = '<strong style="color:#e8eaed;">' + selected.length + ' mezcla(s)</strong>'
+                + ' &nbsp;&#xB7;&nbsp; ' + totalTrials + ' trial(s)'
+                + ' &nbsp;&#xB7;&nbsp; <strong style="color:#00d4aa;">' + totalCils + ' cilindros</strong> con resultado';
+        }
+
+        async function ejecutarExportRoturas() {
+            const selected = [...document.querySelectorAll('.rot-chk:checked')].map(function(c){ return c.dataset.key; });
+            if (!selected.length) {
+                alert('Selecciona al menos una mezcla para exportar.');
+                return;
+            }
+            const btn = document.getElementById('btn-do-export-rot');
+            if (btn) { btn.disabled=true; btn.textContent='&#x23F3; Exportando...'; }
+            try {
+                const selMixes = _rotMixData.filter(function(m){ return selected.includes(String(m._mixKey)); });
+                // Strip internal fields
+                const exportMixes = selMixes.map(function(m) {
+                    const clean = Object.assign({}, m);
+                    delete clean._mixKey; delete clean._clientName; delete clean._projectName;
+                    return clean;
+                });
+
+                const backup = {
+                    version:     '1.0',
+                    exportDate:  new Date().toISOString(),
+                    companyName: '',
+                    companyLogo: (typeof logoEmpresa !== 'undefined' && logoEmpresa) ? logoEmpresa : '',
+                    mixes:       exportMixes
+                };
+
+                const nameEl = document.getElementById('rot-filename');
+                const base   = (nameEl && nameEl.value.trim()) || 'roturas_export';
+                const fname  = base + '_' + new Date().toISOString().slice(0,10) + '.json';
+
+                const blob = new Blob([JSON.stringify(backup, null, 2)], { type:'application/json' });
+                const url  = URL.createObjectURL(blob);
+                const a    = document.createElement('a');
+                a.href = url; a.download = fname;
+                document.body.appendChild(a); a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                cerrarModalExportRoturas();
+
+                const totalCils = exportMixes.reduce(function(s,m){
+                    return s + m.tests.reduce(function(st,t){
+                        return st + t.ages.reduce(function(sa,a){ return sa+a.strengths.length; },0);
+                    },0);
+                },0);
+                if (typeof showToastV6 === 'function')
+                    showToastV6('Exportado: ' + exportMixes.length + ' mezclas · ' + totalCils + ' cilindros — ' + fname, 'success');
+
+            } catch(err) {
+                alert('Error al exportar: ' + err.message);
+            } finally {
+                if (btn) { btn.disabled=false; btn.textContent='&#x1F4E5; Descargar JSON para Roturas'; }
+            }
+        }
+
+        // Close on backdrop click
+        document.addEventListener('click', function(e) {
+            const m = document.getElementById('modal-export-roturas');
+            if (m && e.target === m) cerrarModalExportRoturas();
+        });
+
+</script>
 
     
+        <!-- ═══════════════════════════════════════════════════════
+             GRADACIONES TAB
+        ════════════════════════════════════════════════════════ -->
+        <div id="tab-gradaciones" class="tab-content">
+
+            <div class="card" style="padding:1.25rem 1.5rem;">
+                <div style="display:flex;align-items:center;flex-wrap:wrap;gap:0.75rem;">
+                    <h2 style="margin:0;flex:1;">🪨 Base de Datos de Gradaciones</h2>
+                    <button onclick="abrirFormGradacion()" class="success">➕ Nueva Gradación</button>
+                    <button onclick="generarReporteGradaciones()" class="info">📄 Reporte PDF</button>
+                    
+                </div>
+                <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:1rem;">
+                    <select id="filtro-tipo-grad" onchange="filtrarGradaciones()" style="padding:0.5rem 0.75rem;border-radius:8px;background:var(--bg-card);border:1px solid var(--border);color:var(--text);">
+                        <option value="">Todos los tipos</option>
+                        <option value="grueso">Agregado Grueso</option>
+                        <option value="fino">Agregado Fino</option>
+                        <option value="intermedio">Ag. Intermedio</option>
+                        <option value="base">Base Granular</option>
+                    </select>
+                    <input type="text" id="buscar-grad" placeholder="🔍 Buscar..." oninput="filtrarGradaciones()"
+                        style="padding:0.5rem 0.75rem;border-radius:8px;background:var(--bg-card);border:1px solid var(--border);color:var(--text);flex:1;min-width:180px;">
+                </div>
+            </div>
+
+            <div id="lista-gradaciones" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(370px,1fr));gap:1rem;padding:0 0 1.5rem;"></div>
+        </div>
+
+        <!-- Modal Gradación -->
+        <div id="modal-gradacion" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:9999;overflow-y:auto;padding:1rem;">
+          <div style="max-width:820px;margin:2rem auto;background:#1a1f3a;border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:2rem;">
+            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem;">
+                <span style="font-size:1.5rem;">🪨</span>
+                <h3 id="modal-grad-title" style="margin:0;color:#e8eaed;flex:1;">Nueva Gradación</h3>
+                <button onclick="cerrarModalGradacion()" style="background:rgba(255,255,255,0.08);border:none;color:#e8eaed;border-radius:8px;padding:0.4rem 0.9rem;cursor:pointer;">✕</button>
+            </div>
+            <input type="hidden" id="grad-edit-id">
+
+            <!-- Identificación -->
+            <div style="background:rgba(0,212,170,0.05);border:1px solid rgba(0,212,170,0.2);border-radius:10px;padding:1rem;margin-bottom:1rem;">
+                <h4 style="color:#00d4aa;margin:0 0 0.8rem;">📋 Identificación</h4>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.7rem;">
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">NOMBRE *</label>
+                        <input type="text" id="grad-nombre" placeholder="ej: Grava 3/4 Cantera Norte" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;box-sizing:border-box;"></div>
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">TIPO DE MATERIAL *</label>
+                        <select id="grad-tipo" onchange="actualizarEspecsC33()" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;">
+                            <option value="">Seleccionar...</option>
+                            <option value="grueso">Agregado Grueso (ASTM C33)</option>
+                            <option value="fino">Agregado Fino / Arena (ASTM C33)</option>
+                            <option value="intermedio">Agregado Intermedio</option>
+                            <option value="base">Base Granular</option>
+                        </select></div>
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">DESIGNACIÓN C33</label>
+                        <select id="grad-designacion" onchange="generarTablaTamices()" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;">
+                            <option value="">— Seleccionar tipo primero —</option>
+                        </select></div>
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">PROVEEDOR / CANTERA</label>
+                        <input type="text" id="grad-proveedor" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;box-sizing:border-box;"></div>
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">FECHA DE ENSAYO</label>
+                        <input type="date" id="grad-fecha" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;box-sizing:border-box;"></div>
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">TÉCNICO</label>
+                        <input type="text" id="grad-tecnico" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;box-sizing:border-box;"></div>
+                </div>
+            </div>
+
+            <!-- Propiedades Físicas -->
+            <div style="background:rgba(99,102,241,0.05);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:1rem;margin-bottom:1rem;">
+                <h4 style="color:#818cf8;margin:0 0 0.8rem;">⚗️ Propiedades Físicas</h4>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.7rem;">
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">GRAVEDAD ESPECÍFICA (Gs)</label>
+                        <input type="number" step="0.001" id="grad-gs" placeholder="2.650" oninput="calcularVacios()" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;box-sizing:border-box;"></div>
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">ABSORCIÓN (%)</label>
+                        <input type="number" step="0.01" id="grad-absorcion" placeholder="1.50" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;box-sizing:border-box;"></div>
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">HUMEDAD (%)</label>
+                        <input type="number" step="0.01" id="grad-humedad" placeholder="0.50" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;box-sizing:border-box;"></div>
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">P.U. COMPACTADO (lb/ft³)</label>
+                        <input type="number" step="0.1" id="grad-puc" placeholder="100.0" oninput="calcularVacios()" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;box-sizing:border-box;"></div>
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">P.U. SUELTO (lb/ft³)</label>
+                        <input type="number" step="0.1" id="grad-pus" placeholder="95.0" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;box-sizing:border-box;"></div>
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">VACÍOS (%) <span style="color:#00d4aa;">auto</span></label>
+                        <input type="text" id="grad-vacios" readonly placeholder="—" style="width:100%;padding:0.55rem 0.75rem;background:rgba(0,212,170,0.07);border:1px solid rgba(0,212,170,0.2);border-radius:8px;color:#00d4aa;font-weight:700;box-sizing:border-box;"></div>
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">MÓDULO DE FINURA (MF) <span style="color:#00d4aa;">auto</span></label>
+                        <input type="number" step="0.01" id="grad-mf" placeholder="2.80" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;box-sizing:border-box;"></div>
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">TMA (pulg)</label>
+                        <input type="text" id="grad-tma" placeholder="3/4 pulg" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;box-sizing:border-box;"></div>
+                    <div><label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">DESGASTE L.A. (%)</label>
+                        <input type="number" step="0.1" id="grad-desgaste" placeholder="30.0" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;box-sizing:border-box;"></div>
+                </div>
+            </div>
+
+            <!-- Gradación -->
+            <div style="background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:1rem;margin-bottom:1rem;">
+                <h4 style="color:#10b981;margin:0 0 0.8rem;">📊 Análisis Granulométrico — % que Pasa</h4>
+                <div id="tabla-tamices"></div>
+                <div id="cumplimiento-c33" style="margin-top:0.6rem;"></div>
+            </div>
+
+            <div style="margin-bottom:1rem;">
+                <label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.25rem;">OBSERVACIONES</label>
+                <textarea id="grad-observaciones" rows="2" style="width:100%;padding:0.55rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;resize:vertical;box-sizing:border-box;"></textarea>
+            </div>
+
+            <div style="display:flex;gap:0.75rem;">
+                <button onclick="guardarGradacion()" class="success" style="flex:1;">💾 Guardar</button>
+                <button onclick="cerrarModalGradacion()" class="secondary">✕ Cancelar</button>
+            </div>
+          </div>
+        </div>
+
         <!-- ===== AI OPTIMIZER TAB ===== -->
         <div id="tab-ai-optimizer" class="tab-content">
 
@@ -10250,6 +11409,55 @@ Sistema de Optimización AI de Concreto — ACI 211.1 / ACI 318 / ASTM C33 / Mé
             <p style="font-size:14px;color:#666;margin-bottom:20px">Escanea este código para ver los detalles del trial mix</p>
             <button class="btn secondary" onclick="cerrarModalQR()">Cerrar</button>
         </div>
+    </div>
+
+
+    <!-- ═══════════════════════════════════════════════════════════
+         MODAL: Exportar para Sistema de Roturas (selección)
+    ════════════════════════════════════════════════════════════ -->
+    <div id="modal-export-roturas" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:10000;overflow-y:auto;padding:1rem;">
+      <div style="max-width:750px;margin:2rem auto;background:#1a1f3a;border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:2rem;">
+
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.3rem;">
+          <span style="font-size:1.6rem;">🧪</span>
+          <h3 style="margin:0;color:#e8eaed;flex:1;">Exportar al Sistema de Roturas</h3>
+          <button onclick="cerrarModalExportRoturas()" style="background:rgba(255,255,255,0.08);border:none;color:#e8eaed;border-radius:8px;padding:0.4rem 0.9rem;cursor:pointer;font-size:1rem;">&#x2715;</button>
+        </div>
+        <p style="color:#8b92a8;font-size:0.83rem;margin:0 0 1.25rem;">Selecciona las mezclas a exportar. Solo aparecen las que tienen cilindros con resistencia registrada.</p>
+
+        <div style="display:flex;gap:0.6rem;margin-bottom:0.9rem;flex-wrap:wrap;align-items:center;">
+          <input type="text" id="rot-search" placeholder="Buscar mezcla..." oninput="filtrarMixesExport()"
+            style="flex:1;min-width:160px;padding:0.5rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;">
+          <select id="rot-filter-client" onchange="filtrarMixesExport()"
+            style="padding:0.5rem 0.75rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;">
+            <option value="">Todos los clientes</option>
+          </select>
+          <button onclick="rotSelectAll(true)"  style="padding:0.4rem 0.75rem;background:rgba(0,212,170,0.12);border:1px solid rgba(0,212,170,0.3);border-radius:6px;color:#00d4aa;cursor:pointer;font-size:0.82rem;">&#x2705; Todos</button>
+          <button onclick="rotSelectAll(false)" style="padding:0.4rem 0.75rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#8b92a8;cursor:pointer;font-size:0.82rem;">&#x2610; Ninguno</button>
+        </div>
+
+        <div id="rot-mix-list" style="max-height:340px;overflow-y:auto;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(0,0,0,0.15);">
+          <div style="padding:2rem;text-align:center;color:#8b92a8;">Cargando...</div>
+        </div>
+
+        <div id="rot-summary" style="margin-top:0.9rem;padding:0.65rem 1rem;background:rgba(0,212,170,0.07);border:1px solid rgba(0,212,170,0.2);border-radius:8px;color:#8b92a8;font-size:0.83rem;">
+          Calculando...
+        </div>
+
+        <div style="margin-top:1rem;">
+          <label style="color:#8b92a8;font-size:0.8rem;display:block;margin-bottom:0.3rem;">NOMBRE DEL ARCHIVO</label>
+          <input type="text" id="rot-filename" placeholder="roturas_export"
+            style="width:100%;padding:0.55rem 0.8rem;background:rgba(20,25,45,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#e8eaed;box-sizing:border-box;">
+        </div>
+
+        <div style="display:flex;gap:0.75rem;margin-top:1.25rem;">
+          <button id="btn-do-export-rot" onclick="ejecutarExportRoturas()" class="success" style="flex:1;padding:0.7rem;">
+            &#x1F4E5; Descargar JSON para Roturas
+          </button>
+          <button onclick="cerrarModalExportRoturas()" class="secondary" style="padding:0.7rem 1.25rem;">Cancelar</button>
+        </div>
+
+      </div>
     </div>
 
 </body>
