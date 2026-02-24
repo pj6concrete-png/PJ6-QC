@@ -1542,6 +1542,43 @@
                         </div>
                     </div>
 
+                    <div class="form-grid cols-3">
+                        <div class="form-group">
+                            <label>Ticket Number</label>
+                            <input type="text" id="trial-ticket" placeholder="ej: TKT-2025-001">
+                        </div>
+                        <div class="form-group">
+                            <label>Tipo de Prueba</label>
+                            <div style="display:flex;gap:6px;align-items:center">
+                                <select id="trial-tipo-prueba" style="flex:1">
+                                    <option value="">Seleccionar...</option>
+                                    <option value="Lab">Lab</option>
+                                    <option value="Planta">Planta</option>
+                                    <option value="Proyecto">Proyecto</option>
+                                </select>
+                                <button type="button" class="secondary" style="padding:6px 10px;font-size:12px;white-space:nowrap" onclick="abrirModalTiposPrueba()" title="Editar opciones">✏️</button>
+                            </div>
+                        </div>
+                        <div class="form-group" style="display:flex;flex-direction:column;justify-content:flex-end">
+                            <!-- spacer -->
+                        </div>
+                    </div>
+
+                    <div class="form-grid cols-2">
+                        <div class="form-group">
+                            <label>Cliente</label>
+                            <select id="trial-cliente-id" onchange="cargarProyectosTrial()">
+                                <option value="">Sin cliente</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Proyecto</label>
+                            <select id="trial-proyecto-id">
+                                <option value="">Sin proyecto</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <div class="form-grid cols-2">
                         <div class="form-group">
                             <label>Seleccionar Mix Design Base *</label>
@@ -1624,6 +1661,12 @@
                         <div class="form-group">
                             <label>Peso Unitario (lb/ft³)</label>
                             <input type="number" id="trial-peso-unitario" step="0.1" placeholder="ej: 145.2">
+                        </div>
+                    </div>
+                    <div class="form-grid cols-4">
+                        <div class="form-group">
+                            <label>Agua Añadida en Campo (lb)</label>
+                            <input type="number" id="trial-agua-anadida" step="0.1" min="0" placeholder="ej: 2.5">
                         </div>
                     </div>
 
@@ -1801,6 +1844,8 @@
 
         async function nuevoTrial() {
             clearForm('trial');
+            await cargarClientesTrialSelect();
+            refreshTipoPruebaSelect();
             const trialId = await generarTrialId();
             document.getElementById('trial-id-display').value = trialId;
             document.getElementById('trial-fecha').valueAsDate = new Date();
@@ -1937,153 +1982,16 @@
         }
 
         // ============ EXPORTAR / IMPORTAR DATA ============
-
-        // ─────────────────────────────────────────────────────────────────────
-        //  IMPORTAR DATA
-        //  Restaura un backup JSON: IndexedDB (clientes, proyectos, materiales,
-        //  cotizaciones, mixdesigns, trials) + localStorage (gradaciones) + logo.
-        // ─────────────────────────────────────────────────────────────────────
-        async function importarData(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            event.target.value = '';          // reset para poder re-importar mismo archivo
-
-            const reader = new FileReader();
-            reader.onload = async function(e) {
-                try {
-                    const data = JSON.parse(e.target.result);
-
-                    // Validación básica
-                    const tieneData = data.clientes || data.proyectos || data.materiales ||
-                                      data.cotizaciones || data.mixdesigns || data.trials ||
-                                      data.gradaciones;
-                    if (!tieneData) {
-                        alert('❌ El archivo no parece ser un backup válido de este sistema.');
-                        return;
-                    }
-
-                    // Confirmación con resumen
-                    const lineas = [
-                        '⚠️  IMPORTAR BACKUP',
-                        '',
-                        'Los registros se AÑADIRÁN / ACTUALIZARÁN en tu base de datos.',
-                        '',
-                        'Contenido del archivo:'
-                    ];
-                    const conteos = [
-                        ['Clientes',    data.clientes],
-                        ['Proyectos',   data.proyectos],
-                        ['Materiales',  data.materiales],
-                        ['Cotizaciones',data.cotizaciones],
-                        ['Mix Designs', data.mixdesigns],
-                        ['Trials',      data.trials],
-                        ['Gradaciones', data.gradaciones]
-                    ];
-                    conteos.forEach(function(par) {
-                        if (par[1] && par[1].length)
-                            lineas.push('  • ' + par[0] + ': ' + par[1].length);
-                    });
-                    lineas.push('', '¿Continuar?');
-                    if (!confirm(lineas.join('\n'))) return;
-
-                    const res = { clientes:0, proyectos:0, materiales:0,
-                                  cotizaciones:0, mixdesigns:0, trials:0, gradaciones:0 };
-                    const errores = [];
-
-                    // ── IndexedDB stores: usar put() = upsert ──────────────
-                    // put() inserta si no existe, reemplaza si ya existe.
-                    // Preserva los IDs originales → todas las relaciones
-                    // (clienteId, proyectoId, mixDesignId) siguen siendo válidas.
-                    const stores = [
-                        { nombre: 'clientes',     arr: data.clientes     },
-                        { nombre: 'proyectos',    arr: data.proyectos    },
-                        { nombre: 'materiales',   arr: data.materiales   },
-                        { nombre: 'cotizaciones', arr: data.cotizaciones },
-                        { nombre: 'mixdesigns',   arr: data.mixdesigns   },
-                        { nombre: 'trials',       arr: data.trials       }
-                    ];
-
-                    for (const s of stores) {
-                        if (!s.arr || !s.arr.length) continue;
-                        for (const rec of s.arr) {
-                            try {
-                                await updateRecord(s.nombre, rec);   // put() = upsert
-                                res[s.nombre]++;
-                            } catch (err) {
-                                errores.push(s.nombre + '[' + rec.id + ']: ' + err.message);
-                            }
-                        }
-                    }
-
-                    // ── Gradaciones (localStorage) ─────────────────────────
-                    if (data.gradaciones && data.gradaciones.length) {
-                        const existentes = getGradaciones();
-                        const mapa = {};
-                        existentes.forEach(function(g) { mapa[g.id] = true; });
-                        data.gradaciones.forEach(function(g) {
-                            const i = existentes.findIndex(function(x) { return x.id === g.id; });
-                            if (i >= 0) { existentes[i] = g; }
-                            else        { existentes.push(g); }
-                            res.gradaciones++;
-                        });
-                        saveGradaciones(existentes);
-                    }
-
-                    // ── Logo ───────────────────────────────────────────────
-                    if (data.logo) {
-                        try { await guardarLogo(data.logo); } catch(e) { /* silent */ }
-                    }
-
-                    // ── Refrescar toda la UI ───────────────────────────────
-                    try { await loadClientes();       } catch(e) {}
-                    try { await loadProyectos();      } catch(e) {}
-                    try { await loadMateriales();     } catch(e) {}
-                    try { await loadCotizaciones();   } catch(e) {}
-                    try { await loadMixDesigns();     } catch(e) {}
-                    try { await loadTrials();         } catch(e) {}
-                    try { renderGradaciones();        } catch(e) {}
-                    try { updateDashboard();          } catch(e) {}
-                    try { loadClientesSelect();       } catch(e) {}
-                    try { loadProyectosSelect();      } catch(e) {}
-                    try { loadMixDesignsSelect();     } catch(e) {}
-                    try { cargarLogoGuardado();       } catch(e) {}
-
-                    const resumen = [
-                        '✅  Importación completada:',
-                        '',
-                        '  • Clientes:     ' + res.clientes,
-                        '  • Proyectos:    ' + res.proyectos,
-                        '  • Materiales:   ' + res.materiales,
-                        '  • Cotizaciones: ' + res.cotizaciones,
-                        '  • Mix Designs:  ' + res.mixdesigns,
-                        '  • Trials:       ' + res.trials,
-                        '  • Gradaciones:  ' + res.gradaciones
-                    ];
-                    if (errores.length)
-                        resumen.push('', '⚠️  ' + errores.length + ' error(es) menores — ver consola.');
-                    alert(resumen.join('\n'));
-
-                } catch (err) {
-                    console.error('importarData error:', err);
-                    alert('❌ Error al importar: ' + (err.message || err) +
-                          '\n\nVerifica que sea un backup JSON válido de este sistema.');
-                }
-            };
-            reader.readAsText(file);
-        }
-
         async function exportarTodaLaData() {
             try {
                 const data = {
                     version: '1.0',
                     exportDate: new Date().toISOString(),
-                    clientes:     await getAllRecords('clientes'),
-                    proyectos:    await getAllRecords('proyectos'),
-                    materiales:   await getAllRecords('materiales'),
-                    cotizaciones: await getAllRecords('cotizaciones'),
-                    mixdesigns:   await getAllRecords('mixdesigns'),
-                    trials:       await getAllRecords('trials'),
-                    gradaciones:  getGradaciones()
+                    clientes: await getAllRecords('clientes'),
+                    proyectos: await getAllRecords('proyectos'),
+                    materiales: await getAllRecords('materiales'),
+                    mixdesigns: await getAllRecords('mixdesigns'),
+                    trials: await getAllRecords('trials')
                 };
                 
                 // Incluir logo si existe
@@ -2124,13 +2032,11 @@
                 URL.revokeObjectURL(url);
                 
                 alert(`✅ Data exportada exitosamente!\n\nArchivo: ${nombreArchivo}\n\n` +
-                      `Clientes:     ${data.clientes.length}\n` +
-                      `Proyectos:    ${data.proyectos.length}\n` +
-                      `Materiales:   ${data.materiales.length}\n` +
-                      `Cotizaciones: ${data.cotizaciones.length}\n` +
-                      `Mix Designs:  ${data.mixdesigns.length}\n` +
-                      `Trial Mixes:  ${data.trials.length}\n` +
-                      `Gradaciones:  ${data.gradaciones.length}`);
+                      `Clientes: ${data.clientes.length}\n` +
+                      `Proyectos: ${data.proyectos.length}\n` +
+                      `Materiales: ${data.materiales.length}\n` +
+                      `Mix Designs: ${data.mixdesigns.length}\n` +
+                      `Trial Mixes: ${data.trials.length}`);
                 
             } catch (error) {
                 console.error('Error exportando:', error);
@@ -2207,9 +2113,11 @@
 
                         mixMap[key] = {
                             id:           mixIdStr,
-                            project:      (proyecto ? proyecto.nombre : '') || mixDesign.nombre || '',
-                            contractor:   (cliente  ? cliente.nombre  : '') || '',
+                            project:      (proyecto ? proyecto.nombre : '') || trial.proyectoNombre || mixDesign.nombre || '',
+                            contractor:   (cliente  ? cliente.nombre  : '') || trial.clienteNombre  || '',
                             plant:        mixDesign.planta || '',
+                            ticketNumber: trial.ticketNumber || '',
+                            tipoPrueba:   trial.tipoPrueba   || '',
                             description:  mixDesign.nombre + (mixDesign.aplicacion ? ' - ' + mixDesign.aplicacion : ''),
                             qcManager:    mixDesign.responsable || '',
                             specStrength: mixDesign.resistencia || 0,
@@ -2348,6 +2256,7 @@
             if (tabName === 'trials') {
                 loadTrials();
                 loadMixDesignsSelect();
+                cargarClientesTrialSelect();
             }
             if (tabName === 'analisis') {
                 updateAnalisisMixFilter();
@@ -3371,6 +3280,27 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
         setTimeout(() => window.print(), 500);
     };
 </scr` + `ipt>
+
+    <!-- Modal: Editar Tipos de Prueba -->
+    <div id="modal-tipos-prueba" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+        <div style="background:white;border-radius:12px;padding:28px;width:420px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.3)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+                <h3 style="margin:0;color:#16a34a">✏️ Tipos de Prueba</h3>
+                <button onclick="cerrarModalTiposPrueba()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#666">&times;</button>
+            </div>
+            <p style="font-size:13px;color:#666;margin-bottom:16px">Administra las opciones del selector "Tipo de Prueba". Los valores predeterminados son Lab, Planta y Proyecto.</p>
+            <div id="lista-tipos-prueba" style="margin-bottom:16px;display:flex;flex-direction:column;gap:8px"></div>
+            <div style="display:flex;gap:8px;margin-bottom:16px">
+                <input type="text" id="nuevo-tipo-prueba-input" placeholder="Nuevo tipo..." style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px">
+                <button onclick="agregarTipoPrueba()" class="success" style="padding:8px 16px">+ Añadir</button>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+                <button onclick="cerrarModalTiposPrueba()" class="secondary">Cancelar</button>
+                <button onclick="guardarTiposPrueba()" class="success">💾 Guardar</button>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>`;
 
@@ -6547,21 +6477,35 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
                     });
                 }
 
+                const clienteIdTrial  = parseInt(document.getElementById('trial-cliente-id').value) || 0;
+                const proyectoIdTrial = parseInt(document.getElementById('trial-proyecto-id').value) || 0;
+                const clienteSelTrial  = document.getElementById('trial-cliente-id');
+                const proyectoSelTrial = document.getElementById('trial-proyecto-id');
+                const clienteNombreTrial  = clienteSelTrial  ? (clienteSelTrial.options[clienteSelTrial.selectedIndex]  || {}).text || '' : '';
+                const proyectoNombreTrial = proyectoSelTrial ? (proyectoSelTrial.options[proyectoSelTrial.selectedIndex] || {}).text || '' : '';
+
                 const trial = {
-                    trialId:         trialId,
-                    mixDesignId:     mixId,
-                    mixDesignNombre: mix.nombre,
-                    fecha:           fecha,
-                    hora:            document.getElementById('trial-hora').value,
-                    tamano:          tamano,
-                    slump:           parseFloat(document.getElementById('trial-slump').value) || 0,
-                    temperatura:     parseFloat(document.getElementById('trial-temperatura').value) || 0,
-                    aire:            parseFloat(document.getElementById('trial-aire').value) || 0,
-                    pesoUnitario:    parseFloat(document.getElementById('trial-peso-unitario').value) || 0,
-                    cilindros:       cilindros,
-                    observaciones:   document.getElementById('trial-observaciones').value,
-                    tecnico:         document.getElementById('trial-tecnico').value,
-                    fechaCreacion:   new Date().toISOString()
+                    trialId:          trialId,
+                    mixDesignId:      mixId,
+                    mixDesignNombre:  mix.nombre,
+                    clienteId:        clienteIdTrial,
+                    clienteNombre:    clienteNombreTrial === 'Sin cliente' ? '' : clienteNombreTrial,
+                    proyectoId:       proyectoIdTrial,
+                    proyectoNombre:   proyectoNombreTrial === 'Sin proyecto' ? '' : proyectoNombreTrial,
+                    ticketNumber:     document.getElementById('trial-ticket').value.trim(),
+                    tipoPrueba:       document.getElementById('trial-tipo-prueba').value,
+                    fecha:            fecha,
+                    hora:             document.getElementById('trial-hora').value,
+                    tamano:           tamano,
+                    slump:            parseFloat(document.getElementById('trial-slump').value) || 0,
+                    temperatura:      parseFloat(document.getElementById('trial-temperatura').value) || 0,
+                    aire:             parseFloat(document.getElementById('trial-aire').value) || 0,
+                    pesoUnitario:     parseFloat(document.getElementById('trial-peso-unitario').value) || 0,
+                    aguaAnadida:      parseFloat(document.getElementById('trial-agua-anadida').value) || 0,
+                    cilindros:        cilindros,
+                    observaciones:    document.getElementById('trial-observaciones').value,
+                    tecnico:          document.getElementById('trial-tecnico').value,
+                    fechaCreacion:    new Date().toISOString()
                 };
 
                 if (editId) {
@@ -6588,6 +6532,141 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             }
         }
 
+
+        // ── Tipos de Prueba management ─────────────────────────────────
+        const TIPOS_PRUEBA_KEY = 'tiposPruebaCustom';
+        const TIPOS_PRUEBA_DEFAULT = ['Lab', 'Planta', 'Proyecto'];
+
+        function getTiposPrueba() {
+            try {
+                const saved = localStorage.getItem(TIPOS_PRUEBA_KEY);
+                return saved ? JSON.parse(saved) : [...TIPOS_PRUEBA_DEFAULT];
+            } catch(e) { return [...TIPOS_PRUEBA_DEFAULT]; }
+        }
+
+        function saveTiposPruebaLS(arr) {
+            try { localStorage.setItem(TIPOS_PRUEBA_KEY, JSON.stringify(arr)); } catch(e) {}
+        }
+
+        function refreshTipoPruebaSelect(currentValue) {
+            const sel = document.getElementById('trial-tipo-prueba');
+            if (!sel) return;
+            const tipos = getTiposPrueba();
+            const prev = currentValue !== undefined ? currentValue : sel.value;
+            sel.innerHTML = '<option value="">Seleccionar...</option>';
+            tipos.forEach(function(t) {
+                const opt = document.createElement('option');
+                opt.value = t; opt.textContent = t;
+                if (t === prev) opt.selected = true;
+                sel.appendChild(opt);
+            });
+        }
+
+        function abrirModalTiposPrueba() {
+            const tipos = getTiposPrueba();
+            renderListaTiposPrueba(tipos);
+            const modal = document.getElementById('modal-tipos-prueba');
+            modal.style.display = 'flex';
+        }
+
+        function cerrarModalTiposPrueba() {
+            document.getElementById('modal-tipos-prueba').style.display = 'none';
+        }
+
+        function renderListaTiposPrueba(tipos) {
+            const container = document.getElementById('lista-tipos-prueba');
+            if (!container) return;
+            container.innerHTML = '';
+            tipos.forEach(function(tipo, idx) {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;gap:8px;align-items:center';
+                row.innerHTML = '<input type="text" value="' + escapeHtmlAttr(tipo) + '" data-idx="' + idx + '" style="flex:1;padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:14px">' +
+                    '<button onclick="eliminarTipoPrueba(' + idx + ')" style="background:#fee2e2;border:1px solid #fecaca;color:#dc2626;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px">✕</button>';
+                container.appendChild(row);
+            });
+        }
+
+        function escapeHtmlAttr(str) {
+            return String(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;');
+        }
+
+        function agregarTipoPrueba() {
+            const input = document.getElementById('nuevo-tipo-prueba-input');
+            const val = input.value.trim();
+            if (!val) return;
+            const rows = document.querySelectorAll('#lista-tipos-prueba input[data-idx]');
+            const tipos = Array.from(rows).map(function(r){ return r.value.trim(); }).filter(Boolean);
+            tipos.push(val);
+            renderListaTiposPrueba(tipos);
+            input.value = '';
+            input.focus();
+        }
+
+        function eliminarTipoPrueba(idx) {
+            const rows = document.querySelectorAll('#lista-tipos-prueba input[data-idx]');
+            const tipos = Array.from(rows).map(function(r){ return r.value.trim(); }).filter(Boolean);
+            tipos.splice(idx, 1);
+            renderListaTiposPrueba(tipos);
+        }
+
+        function guardarTiposPrueba() {
+            const rows = document.querySelectorAll('#lista-tipos-prueba input[data-idx]');
+            const tipos = Array.from(rows).map(function(r){ return r.value.trim(); }).filter(Boolean);
+            if (tipos.length === 0) { alert('Debes tener al menos un tipo.'); return; }
+            saveTiposPruebaLS(tipos);
+            refreshTipoPruebaSelect();
+            cerrarModalTiposPrueba();
+        }
+
+        // Close modal on backdrop click
+        document.addEventListener('click', function(e) {
+            const modal = document.getElementById('modal-tipos-prueba');
+            if (modal && e.target === modal) cerrarModalTiposPrueba();
+        });
+
+        // Enter key in new tipo input
+        document.addEventListener('DOMContentLoaded', function() {
+            var inp = document.getElementById('nuevo-tipo-prueba-input');
+            if (inp) inp.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); agregarTipoPrueba(); }});
+            refreshTipoPruebaSelect();
+        });
+
+        async function cargarClientesTrialSelect() {
+            const sel = document.getElementById('trial-cliente-id');
+            if (!sel) return;
+            const clientes = await getAllRecords('clientes');
+            sel.innerHTML = '<option value="">Sin cliente</option>';
+            clientes.forEach(function(cl) {
+                const opt = document.createElement('option');
+                opt.value = cl.id; opt.textContent = cl.nombre;
+                sel.appendChild(opt);
+            });
+        }
+
+        async function cargarProyectosTrial() {
+            const clienteId = parseInt(document.getElementById('trial-cliente-id').value) || 0;
+            const sel = document.getElementById('trial-proyecto-id');
+            if (!sel) return;
+            sel.innerHTML = '<option value="">Sin proyecto</option>';
+            if (!clienteId) return;
+            const proyectos = await getAllRecords('proyectos');
+            proyectos.filter(function(p){ return p.clienteId == clienteId; }).forEach(function(p) {
+                const opt = document.createElement('option');
+                opt.value = p.id; opt.textContent = p.nombre;
+                sel.appendChild(opt);
+            });
+        }
+
+        async function generarPDFTrialPorId(id) {
+            const trial = await getRecord('trials', id);
+            if (!trial) { alert('Trial no encontrado'); return; }
+            currentTrialData = trial;
+            // Pre-load the form fields needed for PDF generation
+            const mix = await getRecord('mixdesigns', parseInt(trial.mixDesignId));
+            // Reuse the existing report generator
+            await generarReporteTrialData(trial, mix);
+        }
+
         async function loadTrials() {
             const trials = await getAllRecords('trials');
             const container = document.getElementById('lista-trials');
@@ -6597,19 +6676,22 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
                 return;
             }
             
-            let html = '<table><thead><tr><th>Trial ID</th><th>Mix Design</th><th>Tamaño</th><th>Slump</th><th>Temp</th><th>Aire</th><th>Cilindros</th><th>Fecha</th><th>Acciones</th></tr></thead><tbody>';
+            let html = '<table><thead><tr><th>Trial ID</th><th>Ticket</th><th>Tipo</th><th>Mix Design</th><th>Cliente</th><th>Proyecto</th><th>Tamaño</th><th>Slump</th><th>Cilindros</th><th>Fecha</th><th>Acciones</th></tr></thead><tbody>';
             trials.forEach(t => {
+                const tipoBadge = t.tipoPrueba ? `<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:20px;font-size:0.78rem;font-weight:600">${t.tipoPrueba}</span>` : '<span style="color:#8b92a8;font-size:0.85rem;">—</span>';
                 html += `<tr>
                     <td><span class="trial-badge">${t.trialId}</span></td>
+                    <td style="font-family:monospace;font-size:0.85rem">${t.ticketNumber || '<span style="color:#8b92a8">—</span>'}</td>
+                    <td>${tipoBadge}</td>
                     <td><strong>${t.mixDesignNombre}</strong></td>
+                    <td>${t.clienteNombre || '<span style="color:#8b92a8;font-size:0.85rem;">—</span>'}</td>
+                    <td>${t.proyectoNombre || '<span style="color:#8b92a8;font-size:0.85rem;">—</span>'}</td>
                     <td>${t.tamano} ft³</td>
                     <td>${t.slump || '-'} in</td>
-                    <td>${t.temperatura || '-'} °F</td>
-                    <td>${t.aire || '-'} %</td>
                     <td>${t.cilindros.length}</td>
                     <td>${new Date(t.fecha).toLocaleDateString()}</td>
                     <td class="actions">
-                        <button class="info" onclick="verTrial(${t.id})">Ver</button>
+                        <button class="success" onclick="generarPDFTrialPorId(${t.id})" title="Generar PDF">📄 PDF</button>
                         <button class="secondary" onclick="editTrial(${t.id})">Editar</button>
                         <button class="danger" onclick="deleteTrial(${t.id})">Eliminar</button>
                     </td>
@@ -6802,6 +6884,17 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             document.getElementById('trial-temperatura').value = trial.temperatura;
             document.getElementById('trial-aire').value = trial.aire;
             document.getElementById('trial-peso-unitario').value = trial.pesoUnitario;
+            document.getElementById('trial-agua-anadida').value = trial.aguaAnadida || '';
+            document.getElementById('trial-ticket').value = trial.ticketNumber || '';
+            refreshTipoPruebaSelect(trial.tipoPrueba || '');
+
+            // Populate cliente/proyecto selects
+            await cargarClientesTrialSelect();
+            if (trial.clienteId) {
+                document.getElementById('trial-cliente-id').value = trial.clienteId;
+                await cargarProyectosTrial();
+                if (trial.proyectoId) document.getElementById('trial-proyecto-id').value = trial.proyectoId;
+            }
             
             document.getElementById('trial-num-cilindros').value = trial.cilindros.length;
             generarCamposCilindros();
@@ -6849,29 +6942,16 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
 
                         async function generarReporteTrial() {
             var trialId = document.getElementById('trial-id-display').value;
-            
-            if (!trialId) {
-                alert('⚠️ Primero guarda el trial mix');
-                return;
-            }
-
+            if (!trialId) { alert('⚠️ Primero guarda el trial mix'); return; }
             var trials = await getAllRecords('trials');
-            var trial = null;
-            
-            for (var i = 0; i < trials.length; i++) {
-                if (trials[i].trialId === trialId) {
-                    trial = trials[i];
-                    break;
-                }
-            }
-            
-            if (!trial) {
-                alert('⚠️ Guarda el trial primero');
-                return;
-            }
-
+            var trial = trials.find(function(t){ return t.trialId === trialId; });
+            if (!trial) { alert('⚠️ Guarda el trial primero'); return; }
             var mix = await getRecord('mixdesigns', parseInt(trial.mixDesignId));
-            
+            await generarReporteTrialData(trial, mix);
+        }
+
+        async function generarReporteTrialData(trial, mix) {
+            var trialId = trial.trialId;
             var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Trial Mix Report - ' + trialId + '</title>';
             html += '<style>';
             html += 'body{font-family:Arial,sans-serif;margin:40px;background:white;color:#333}';
@@ -6895,7 +6975,8 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             html += '<div class="header">';
             html += '<div class="header-left">';
             html += '<h1>TRIAL MIX REPORT</h1>';
-            html += '<p style="font-size:14px;color:#666;margin:0">Trial ID: <strong>' + trialId + '</strong></p>';
+            html += '<p style="font-size:14px;color:#666;margin:0 0 4px 0">Trial ID: <strong>' + trialId + '</strong>' + (trial.ticketNumber ? ' &nbsp;|&nbsp; Ticket: <strong>' + trial.ticketNumber + '</strong>' : '') + '</p>';
+            if (trial.tipoPrueba) html += '<p style="margin:0"><span style="background:#dbeafe;color:#1d4ed8;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:700">' + trial.tipoPrueba + '</span></p>';
             html += '</div>';
             html += '<div class="header-right">';
             if (logoEmpresa) {
@@ -6911,6 +6992,10 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             html += '<div class="info-grid">';
             html += '<div class="info-item"><strong>Mix Design Base:</strong> ' + (mix ? mix.nombre : 'N/A') + '</div>';
             html += '<div class="info-item"><strong>Fecha del Trial:</strong> ' + new Date(trial.fecha).toLocaleDateString('es-ES') + '</div>';
+            if (trial.ticketNumber) html += '<div class="info-item"><strong>Ticket Number:</strong> ' + trial.ticketNumber + '</div>';
+            if (trial.tipoPrueba) html += '<div class="info-item"><strong>Tipo de Prueba:</strong> <span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:600">' + trial.tipoPrueba + '</span></div>';
+            html += '<div class="info-item"><strong>Cliente:</strong> ' + (trial.clienteNombre || '—') + '</div>';
+            html += '<div class="info-item"><strong>Proyecto:</strong> ' + (trial.proyectoNombre || '—') + '</div>';
             html += '<div class="info-item"><strong>Hora:</strong> ' + (trial.hora || 'N/A') + '</div>';
             html += '<div class="info-item"><strong>Tamaño del Batch:</strong> ' + trial.tamano + ' ft³</div>';
             html += '<div class="info-item"><strong>Técnico:</strong> ' + (trial.tecnico || 'N/A') + '</div>';
@@ -6966,10 +7051,23 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
 
                 // Agua
                 html += '<tr>';
-                html += '<td><strong>Agua Efectiva</strong></td>';
+                html += '<td><strong>Agua Efectiva (diseño)</strong></td>';
                 html += '<td style="text-align:right">' + (rT.agua.peso * factorT).toFixed(2) + ' lb</td>';
                 html += '<td style="text-align:right;color:#64748b">' + ((rT.agua.peso * factorT) / 8.34).toFixed(3) + ' gal</td>';
                 html += '</tr>';
+                if (trial.aguaAnadida && trial.aguaAnadida > 0) {
+                    var aguaTotal = (rT.agua.peso * factorT) + trial.aguaAnadida;
+                    html += '<tr style="background:#fff3cd">';
+                    html += '<td><strong style="color:#856404">+ Agua Añadida en Campo</strong></td>';
+                    html += '<td style="text-align:right;color:#856404;font-weight:700">+ ' + trial.aguaAnadida.toFixed(2) + ' lb</td>';
+                    html += '<td style="text-align:right;color:#856404">+ ' + (trial.aguaAnadida / 8.34).toFixed(3) + ' gal</td>';
+                    html += '</tr>';
+                    html += '<tr style="background:#fef9c3;font-weight:700">';
+                    html += '<td><strong style="color:#713f12">Agua Total Real</strong></td>';
+                    html += '<td style="text-align:right;color:#713f12">' + aguaTotal.toFixed(2) + ' lb</td>';
+                    html += '<td style="text-align:right;color:#713f12">' + (aguaTotal / 8.34).toFixed(3) + ' gal</td>';
+                    html += '</tr>';
+                }
 
                 // Grueso
                 html += '<tr>';
@@ -7030,8 +7128,15 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
                 const wcRep  = (rT.wc || 0).toFixed(3);
                 const wcmRep = (rT.wcm || rT.wc || 0).toFixed(3);
                 html += '<div style="background:#f0f9ff;border-left:4px solid #2563eb;padding:10px 14px;border-radius:0 6px 6px 0;margin:10px 0;font-size:13px">';
-                html += '<strong style="color:#1e40af">W/C:</strong> ' + wcRep;
-                if (hasSCMReport) html += ' &nbsp;|&nbsp; <strong style="color:#5b21b6">W/CM:</strong> ' + wcmRep;
+                html += '<strong style="color:#1e40af">W/C diseño:</strong> ' + wcRep;
+                if (hasSCMReport) html += ' &nbsp;|&nbsp; <strong style="color:#5b21b6">W/CM diseño:</strong> ' + wcmRep;
+                if (trial.aguaAnadida && trial.aguaAnadida > 0) {
+                    var cemTotalWC = rT.cemento.peso * factorT + [1,2,3].reduce(function(s,n){ var s2=rT['scm'+n]; return s+(s2&&s2.peso?s2.peso*factorT:0); }, 0);
+                    var wcReal  = cemTotalWC > 0 ? ((rT.agua.peso * factorT + trial.aguaAnadida) / (rT.cemento.peso * factorT)).toFixed(3) : '—';
+                    var wcmReal = cemTotalWC > 0 ? ((rT.agua.peso * factorT + trial.aguaAnadida) / cemTotalWC).toFixed(3) : '—';
+                    html += ' &nbsp;|&nbsp; <strong style="color:#b45309">W/C real:</strong> <span style="color:#b45309;font-weight:700">' + wcReal + '</span>';
+                    if (hasSCMReport) html += ' &nbsp;|&nbsp; <strong style="color:#b45309">W/CM real:</strong> <span style="color:#b45309;font-weight:700">' + wcmReal + '</span>';
+                }
                 html += '</div>';
             }
 
@@ -7044,6 +7149,10 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             html += '<tr><td>Temperatura</td><td>' + (trial.temperatura || '-') + ' °F</td><td>50-90 °F</td></tr>';
             html += '<tr><td>Contenido de Aire</td><td>' + (trial.aire || '-') + ' %</td><td>' + (mix ? mix.contenidoAire + ' %' : '-') + '</td></tr>';
             html += '<tr><td>Peso Unitario</td><td>' + (trial.pesoUnitario || '-') + ' lb/ft³</td><td>-</td></tr>';
+            if (trial.aguaAnadida && trial.aguaAnadida > 0) {
+                var galAnadida = (trial.aguaAnadida / 8.34).toFixed(3);
+                html += '<tr style="background:#fff3cd"><td><strong>Agua Añadida en Campo</strong></td><td><strong>' + trial.aguaAnadida + ' lb</strong> (' + galAnadida + ' gal)</td><td style="color:#856404">⚠ Ajuste en campo</td></tr>';
+            }
             html += '</tbody></table>';
             
             // Resultados de Cilindros
@@ -7290,6 +7399,7 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
                 }
             }, 800);
         }
+
 
 
 
