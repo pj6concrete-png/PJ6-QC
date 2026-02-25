@@ -638,6 +638,7 @@
             <div class="tab" onclick="switchTab('cotizaciones')">💰 Cotizaciones</div>
             <div class="tab" onclick="switchTab('mixdesign')">🧪 Mix Design</div>
             <div class="tab" onclick="switchTab('trials')">🔬 Trial Mixes</div>
+            <div class="tab" onclick="switchTab('campo')">🏗️ Evaluación Campo</div>
             <div class="tab" onclick="switchTab('analisis')">📈 Análisis de Data</div>
             <div class="tab" onclick="switchTab('gradaciones')">🪨 Gradaciones</div>
             <div class="tab" onclick="switchTab('calendario')">📅 Calendario Roturas</div>
@@ -679,8 +680,7 @@
                 <div class="button-group">
                     <button type="button" class="success" onclick="exportarTodaLaData()">📥 Exportar Toda la Data</button>
                     <button type="button" class="info" onclick="abrirModalExportRoturas()" title="Exportar mezclas y cilindros seleccionados para Sistema de Roturas">🧪 Exportar → Roturas</button>
-                    <button type="button" class="info" onclick="document.getElementById('import-file').click()">📤 Importar Data</button>
-                    <input type="file" id="import-file" accept=".json" style="display:none" onchange="importarData(event)">
+                    <label for="file-import-trigger" class="info" style="cursor:pointer;display:inline-block;padding:8px 16px;border-radius:6px;font-weight:500;font-size:14px;background:#0369a1;color:white;border:none">📤 Importar Data</label><input type="file" id="file-import-trigger" accept=".json" style="position:fixed;top:0;left:0;width:1px;height:1px;opacity:0.01;z-index:-9999;pointer-events:none" onchange="handleImportFile(this)">
                 </div>
                 <p style="margin-top:15px;color:#666;font-size:14px">
                     <strong>Exportar:</strong> Descarga todos tus datos (clientes, proyectos, materiales, mix designs, trials) en formato JSON.<br>
@@ -1636,6 +1636,7 @@
                             <thead>
                                 <tr>
                                     <th>Material</th>
+                                    <th style="text-align:right">Proporción (lb/yd³)</th>
                                     <th style="text-align:right">Cantidad (lb)</th>
                                     <th style="text-align:right">Unidad Ref.</th>
                                 </tr>
@@ -1707,6 +1708,442 @@
                 <div id="lista-trials"></div>
             </div>
         </div>
+
+
+        <!-- SECCIÓN: EVALUACIÓN DE CAMPO (PROMIX) -->
+        <div id="tab-campo" class="tab-content">
+
+            <!-- TOOLBAR -->
+            <div class="card" style="padding:14px 20px">
+                <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between">
+                    <div style="display:flex;gap:8px;flex-wrap:wrap">
+                        <button class="success" onclick="nuevaEvaluacionCampo()">+ Nueva Evaluación</button>
+                        <button class="info" onclick="generarPDFCampoActual()" id="btn-pdf-campo" disabled>📄 Generar PDF</button>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <input type="text" id="search-campo" placeholder="Buscar por ID, Ticket, Cliente..." style="padding:7px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;width:260px" oninput="filtrarEvaluaciones()">
+                    </div>
+                </div>
+            </div>
+
+            <!-- FORM -->
+            <div class="card">
+                <h2>🏗️ Evaluación de Campo — Batch Record</h2>
+                <form id="form-campo" novalidate>
+                    <input type="hidden" id="edit-campo-id">
+
+                    <!-- ── IDENTIFICACIÓN ─────────────────────────── -->
+                    <h3>📋 Identificación del Batch</h3>
+                    <div class="form-grid cols-4">
+                        <div class="form-group">
+                            <label>ID Evaluación</label>
+                            <input type="text" id="campo-id-display" readonly class="calculated" placeholder="Auto">
+                        </div>
+                        <div class="form-group">
+                            <label>Semana (Week)</label>
+                            <input type="number" id="campo-week" min="1" max="53" placeholder="ej: 17">
+                        </div>
+                        <div class="form-group">
+                            <label>Fecha *</label>
+                            <input type="date" id="campo-fecha" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Hora del Test</label>
+                            <input type="time" id="campo-hora">
+                        </div>
+                    </div>
+
+                    <div class="form-grid cols-3">
+                        <div class="form-group">
+                            <label>Ticket Number *</label>
+                            <input type="text" id="campo-ticket" placeholder="ej: 111642" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Mix Code</label>
+                            <input type="text" id="campo-mix-code" placeholder="ej: 435-40041AS">
+                        </div>
+                        <div class="form-group">
+                            <label>Mix Design (Trial Mix ID)</label>
+                            <select id="campo-trial-mix-id" onchange="cargarDatosMixDesdeCampo()">
+                                <option value="">Sin referencia</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-grid cols-2">
+                        <div class="form-group">
+                            <label>Mix Description</label>
+                            <input type="text" id="campo-mix-desc" placeholder="ej: 4000PSI REG SL 4&quot;">
+                        </div>
+                        <div class="form-group">
+                            <label>Tipo de Evaluación</label>
+                            <select id="campo-tipo-eval">
+                                <option value="">Seleccionar...</option>
+                                <option value="Field vs Laboratory">Field vs Laboratory</option>
+                                <option value="Field">Field</option>
+                                <option value="Laboratory">Laboratory</option>
+                                <option value="Parallel Test">Parallel Test</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-grid cols-3">
+                        <div class="form-group">
+                            <label>Cliente</label>
+                            <select id="campo-cliente-id" onchange="cargarProyectosCampo()">
+                                <option value="">Sin cliente</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Job / Proyecto</label>
+                            <select id="campo-proyecto-id">
+                                <option value="">Sin proyecto</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Structure</label>
+                            <input type="text" id="campo-structure" placeholder="ej: Column, Slab...">
+                        </div>
+                    </div>
+
+                    <div class="form-grid cols-2">
+                        <div class="form-group">
+                            <label>Made By / Técnico</label>
+                            <input type="text" id="campo-made-by" placeholder="ej: Obed Vazquez">
+                        </div>
+                        <div class="form-group">
+                            <label>Parallel Test / Commercial Lab</label>
+                            <input type="text" id="campo-commercial-lab" placeholder="Nombre del laboratorio comercial">
+                        </div>
+                    </div>
+
+                    <!-- ── BATCH PLANT ────────────────────────────── -->
+                    <h3>🏭 Batch Plant</h3>
+                    <div class="form-grid cols-4">
+                        <div class="form-group">
+                            <label>Batch Plant</label>
+                            <input type="text" id="campo-batch-plant" placeholder="ej: Planta 1">
+                        </div>
+                        <div class="form-group">
+                            <label>Quantity Yards (yd³)</label>
+                            <input type="number" id="campo-qty-yards" step="0.5" min="0" placeholder="ej: 10" oninput="calcCampoYield()">
+                        </div>
+                        <div class="form-group">
+                            <label>Truck Number</label>
+                            <input type="text" id="campo-truck-number" placeholder="ej: 177">
+                        </div>
+                        <div class="form-group">
+                            <label>Truck Driver</label>
+                            <input type="text" id="campo-truck-driver" placeholder="ej: Juan Garcia">
+                        </div>
+                    </div>
+                    <div class="form-grid cols-2">
+                        <div class="form-group">
+                            <label>Req. Strength (psi)</label>
+                            <input type="number" id="campo-req-strength" step="100" min="0" placeholder="ej: 4000">
+                        </div>
+                        <div class="form-group">
+                            <label>Parallel Test</label>
+                            <select id="campo-parallel-test">
+                                <option value="">No</option>
+                                <option value="Si">Sí</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- ── MATERIALES ─────────────────────────────── -->
+                    <h3>🧱 Materiales del Batch</h3>
+                    <div style="overflow-x:auto">
+                        <table style="width:100%;min-width:700px">
+                            <thead>
+                                <tr>
+                                    <th>Material</th>
+                                    <th>Descripción / Proveedor</th>
+                                    <th style="text-align:right">Moist %</th>
+                                    <th style="text-align:right">Target</th>
+                                    <th style="text-align:right">Actual</th>
+                                    <th style="text-align:right">% Diff.</th>
+                                    <th style="text-align:right">Design</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr style="background:#eff6ff">
+                                    <td><strong>Cement 1</strong></td>
+                                    <td><input type="text" id="campo-cem1-desc" placeholder="Portland Type I..."></td>
+                                    <td></td>
+                                    <td><input type="number" id="campo-cem1-target" step="0.1" style="text-align:right" oninput="calcCampoDiff('cem1')"></td>
+                                    <td><input type="number" id="campo-cem1-actual" step="0.1" style="text-align:right" oninput="calcCampoDiff('cem1');calcCampoWCRatio();calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-cem1-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-cem1-design" step="0.1" style="text-align:right"></td>
+                                </tr>
+                                <tr style="background:#eff6ff">
+                                    <td><strong>Cement 2</strong></td>
+                                    <td><input type="text" id="campo-cem2-desc" placeholder="(Opcional)"></td>
+                                    <td></td>
+                                    <td><input type="number" id="campo-cem2-target" step="0.1" style="text-align:right" oninput="calcCampoDiff('cem2')"></td>
+                                    <td><input type="number" id="campo-cem2-actual" step="0.1" style="text-align:right" oninput="calcCampoDiff('cem2');calcCampoWCRatio();calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-cem2-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-cem2-design" step="0.1" style="text-align:right"></td>
+                                </tr>
+                                <tr style="background:#f5f3ff">
+                                    <td><strong>SCM 1</strong></td>
+                                    <td><input type="text" id="campo-scm1-desc" placeholder="Fly Ash, Slag..."></td>
+                                    <td></td>
+                                    <td><input type="number" id="campo-scm1-target" step="0.1" style="text-align:right" oninput="calcCampoDiff('scm1')"></td>
+                                    <td><input type="number" id="campo-scm1-actual" step="0.1" style="text-align:right" oninput="calcCampoDiff('scm1');calcCampoWCRatio();calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-scm1-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-scm1-design" step="0.1" style="text-align:right"></td>
+                                </tr>
+                                <tr style="background:#f5f3ff">
+                                    <td><strong>SCM 2</strong></td>
+                                    <td><input type="text" id="campo-scm2-desc" placeholder="(Opcional)"></td>
+                                    <td></td>
+                                    <td><input type="number" id="campo-scm2-target" step="0.1" style="text-align:right" oninput="calcCampoDiff('scm2')"></td>
+                                    <td><input type="number" id="campo-scm2-actual" step="0.1" style="text-align:right" oninput="calcCampoDiff('scm2');calcCampoWCRatio();calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-scm2-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-scm2-design" step="0.1" style="text-align:right"></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Aggregate 1</strong></td>
+                                    <td><input type="text" id="campo-agg1-desc" placeholder="Grueso, TMA..."></td>
+                                    <td><input type="number" id="campo-agg1-moist" step="0.01" style="text-align:right" placeholder="0.00" oninput="calcCampoDiff('agg1')"></td>
+                                    <td><input type="number" id="campo-agg1-target" step="0.1" style="text-align:right" oninput="calcCampoDiff('agg1')"></td>
+                                    <td><input type="number" id="campo-agg1-actual" step="0.1" style="text-align:right" oninput="calcCampoDiff('agg1');calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-agg1-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-agg1-design" step="0.1" style="text-align:right"></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Aggregate 2</strong></td>
+                                    <td><input type="text" id="campo-agg2-desc" placeholder="(Opcional)"></td>
+                                    <td><input type="number" id="campo-agg2-moist" step="0.01" style="text-align:right" placeholder="0.00" oninput="calcCampoDiff('agg2')"></td>
+                                    <td><input type="number" id="campo-agg2-target" step="0.1" style="text-align:right" oninput="calcCampoDiff('agg2')"></td>
+                                    <td><input type="number" id="campo-agg2-actual" step="0.1" style="text-align:right" oninput="calcCampoDiff('agg2');calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-agg2-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-agg2-design" step="0.1" style="text-align:right"></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Aggregate 3</strong></td>
+                                    <td><input type="text" id="campo-agg3-desc" placeholder="(Opcional)"></td>
+                                    <td><input type="number" id="campo-agg3-moist" step="0.01" style="text-align:right" placeholder="0.00" oninput="calcCampoDiff('agg3')"></td>
+                                    <td><input type="number" id="campo-agg3-target" step="0.1" style="text-align:right" oninput="calcCampoDiff('agg3')"></td>
+                                    <td><input type="number" id="campo-agg3-actual" step="0.1" style="text-align:right" oninput="calcCampoDiff('agg3');calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-agg3-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-agg3-design" step="0.1" style="text-align:right"></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Aggregate 4</strong></td>
+                                    <td><input type="text" id="campo-agg4-desc" placeholder="(Opcional)"></td>
+                                    <td><input type="number" id="campo-agg4-moist" step="0.01" style="text-align:right" placeholder="0.00" oninput="calcCampoDiff('agg4')"></td>
+                                    <td><input type="number" id="campo-agg4-target" step="0.1" style="text-align:right" oninput="calcCampoDiff('agg4')"></td>
+                                    <td><input type="number" id="campo-agg4-actual" step="0.1" style="text-align:right" oninput="calcCampoDiff('agg4');calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-agg4-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-agg4-design" step="0.1" style="text-align:right"></td>
+                                </tr>
+                                <tr style="background:#fffbeb">
+                                    <td><strong>Admixture 1</strong></td>
+                                    <td><input type="text" id="campo-adm1-desc" placeholder="Nombre / marca..."></td>
+                                    <td></td>
+                                    <td><input type="number" id="campo-adm1-target" step="0.01" style="text-align:right" oninput="calcCampoDiff('adm1')"></td>
+                                    <td><input type="number" id="campo-adm1-actual" step="0.01" style="text-align:right" oninput="calcCampoDiff('adm1');calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-adm1-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-adm1-design" step="0.01" style="text-align:right"></td>
+                                </tr>
+                                <tr style="background:#fffbeb">
+                                    <td><strong>Admixture 2</strong></td>
+                                    <td><input type="text" id="campo-adm2-desc" placeholder="(Opcional)"></td>
+                                    <td></td>
+                                    <td><input type="number" id="campo-adm2-target" step="0.01" style="text-align:right" oninput="calcCampoDiff('adm2')"></td>
+                                    <td><input type="number" id="campo-adm2-actual" step="0.01" style="text-align:right" oninput="calcCampoDiff('adm2');calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-adm2-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-adm2-design" step="0.01" style="text-align:right"></td>
+                                </tr>
+                                <tr style="background:#fffbeb">
+                                    <td><strong>Admixture 3</strong></td>
+                                    <td><input type="text" id="campo-adm3-desc" placeholder="(Opcional)"></td>
+                                    <td></td>
+                                    <td><input type="number" id="campo-adm3-target" step="0.01" style="text-align:right" oninput="calcCampoDiff('adm3')"></td>
+                                    <td><input type="number" id="campo-adm3-actual" step="0.01" style="text-align:right" oninput="calcCampoDiff('adm3');calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-adm3-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-adm3-design" step="0.01" style="text-align:right"></td>
+                                </tr>
+                                <tr style="background:#fffbeb">
+                                    <td><strong>Admixture 4</strong></td>
+                                    <td><input type="text" id="campo-adm4-desc" placeholder="(Opcional)"></td>
+                                    <td></td>
+                                    <td><input type="number" id="campo-adm4-target" step="0.01" style="text-align:right" oninput="calcCampoDiff('adm4')"></td>
+                                    <td><input type="number" id="campo-adm4-actual" step="0.01" style="text-align:right" oninput="calcCampoDiff('adm4');calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-adm4-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-adm4-design" step="0.01" style="text-align:right"></td>
+                                </tr>
+                                <tr style="background:#fffbeb">
+                                    <td><strong>Admixture 5</strong></td>
+                                    <td><input type="text" id="campo-adm5-desc" placeholder="(Opcional)"></td>
+                                    <td></td>
+                                    <td><input type="number" id="campo-adm5-target" step="0.01" style="text-align:right" oninput="calcCampoDiff('adm5')"></td>
+                                    <td><input type="number" id="campo-adm5-actual" step="0.01" style="text-align:right" oninput="calcCampoDiff('adm5');calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-adm5-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-adm5-design" step="0.01" style="text-align:right"></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Water</strong></td>
+                                    <td></td>
+                                    <td></td>
+                                    <td><input type="number" id="campo-water-target" step="0.1" style="text-align:right" oninput="calcCampoDiff('water');calcCampoWCRatio()"></td>
+                                    <td><input type="number" id="campo-water-actual" step="0.1" style="text-align:right" oninput="calcCampoDiff('water');calcCampoWCRatio();calcCampoYield()"></td>
+                                    <td><input type="text" id="campo-water-diff" readonly class="calculated" style="text-align:right"></td>
+                                    <td><input type="number" id="campo-water-design" step="0.1" style="text-align:right" oninput="calcCampoWCRatio()"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- ── AGUA Y W/C ──────────────────────────────── -->
+                    <h3>💧 Agua y W/C Ratio</h3>
+                    <div class="form-grid cols-4">
+                        <div class="form-group">
+                            <label>Water Added (lb)</label>
+                            <input type="number" id="campo-water-added" step="0.1" min="0" placeholder="ej: 15.0" oninput="calcCampoWCRatio();calcCampoYield()">
+                        </div>
+                        <div class="form-group">
+                            <label>Total Water / CY (lb)</label>
+                            <input type="number" id="campo-total-water-cy" step="0.1" class="calculated" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>Total Moisture (%)</label>
+                            <input type="number" id="campo-total-moisture" step="0.01" placeholder="ej: 0.85">
+                        </div>
+                        <div class="form-group">
+                            <label>Actual W/C Ratio</label>
+                            <input type="text" id="campo-actual-wc" readonly class="calculated">
+                        </div>
+                    </div>
+
+                    <!-- ── PROPIEDADES DEL CONCRETO FRESCO ─────────── -->
+                    <h3>🌡️ Propiedades del Concreto Fresco</h3>
+                    <div class="form-grid cols-3">
+                        <div class="form-group">
+                            <label>Slump Target (in)</label>
+                            <input type="number" id="campo-slump-target" step="0.25" placeholder="ej: 4.00">
+                        </div>
+                        <div class="form-group">
+                            <label>Slump at Batch Plant (in)</label>
+                            <input type="number" id="campo-slump-plant" step="0.25" placeholder="ej: 4.75">
+                        </div>
+                        <div class="form-group">
+                            <label>Slump at Project (in)</label>
+                            <input type="number" id="campo-slump-project" step="0.25" placeholder="ej: 4.50">
+                        </div>
+                    </div>
+                    <div class="form-grid cols-2">
+                        <div class="form-group">
+                            <label>Temp at Batch Plant (°F)</label>
+                            <input type="number" id="campo-temp-plant" step="0.1" placeholder="ej: 82.0">
+                        </div>
+                        <div class="form-group">
+                            <label>Temp at Project (°F)</label>
+                            <input type="number" id="campo-temp-project" step="0.1" placeholder="ej: 85.0">
+                        </div>
+                    </div>
+                    <div class="form-grid cols-3">
+                        <div class="form-group">
+                            <label>Air Content Target (%)</label>
+                            <input type="number" id="campo-air-target" step="0.1" placeholder="ej: 5.0">
+                        </div>
+                        <div class="form-group">
+                            <label>Air Content at Batch Plant (%)</label>
+                            <input type="number" id="campo-air-plant" step="0.1" placeholder="ej: 6.8">
+                        </div>
+                        <div class="form-group">
+                            <label>Actual Air Content (%)</label>
+                            <input type="number" id="campo-air-actual" step="0.1" placeholder="ej: 5.5">
+                        </div>
+                    </div>
+
+                    <!-- ── YIELD / PESO UNITARIO ───────────────────── -->
+                    <h3>⚖️ Yield & Peso Unitario</h3>
+                    <div class="form-grid cols-4">
+                        <div class="form-group">
+                            <label>Weight of Bucket (lb)</label>
+                            <input type="number" id="campo-wt-bucket" step="0.01" oninput="calcCampoYield()">
+                        </div>
+                        <div class="form-group">
+                            <label>Bucket Volume (ft³)</label>
+                            <input type="number" id="campo-vol-bucket" step="0.001" placeholder="ej: 0.25" oninput="calcCampoYield()">
+                        </div>
+                        <div class="form-group">
+                            <label>Weight of Bucket+Concrete (lb)</label>
+                            <input type="number" id="campo-wt-bucket-conc" step="0.01" oninput="calcCampoYield()">
+                        </div>
+                        <div class="form-group">
+                            <label>Design Unit Weight (lb/ft³)</label>
+                            <input type="number" id="campo-design-unit-wt" step="0.01" placeholder="ej: 145.0">
+                        </div>
+                    </div>
+                    <div class="form-grid cols-4">
+                        <div class="form-group">
+                            <label>Batch Unit Weight (lb/ft³)</label>
+                            <input type="text" id="campo-batch-unit-wt" readonly class="calculated">
+                        </div>
+                        <div class="form-group">
+                            <label>Unit Weight (lb/ft³)</label>
+                            <input type="text" id="campo-unit-weight" readonly class="calculated">
+                        </div>
+                        <div class="form-group">
+                            <label>Yield (ft³)</label>
+                            <input type="text" id="campo-yield-ft3" readonly class="calculated">
+                        </div>
+                        <div class="form-group">
+                            <label>Yield % / Yield CY</label>
+                            <input type="text" id="campo-yield-pct" readonly class="calculated">
+                        </div>
+                    </div>
+
+                    <!-- ── CILINDROS ───────────────────────────────── -->
+                    <h3>🧪 Evaluation Cylinders</h3>
+                    <div style="overflow-x:auto">
+                        <table style="width:100%;min-width:600px">
+                            <thead>
+                                <tr>
+                                    <th>Age (días)</th>
+                                    <th>Fecha de Ensayo</th>
+                                    <th style="text-align:right">Result (psi)</th>
+                                    <th style="text-align:right">CE</th>
+                                    <th style="text-align:right">% Req Strength</th>
+                                    <th>Observación</th>
+                                </tr>
+                            </thead>
+                            <tbody id="campo-cilindros-body">
+                                <!-- Rows generated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:8px">
+                        <button type="button" class="success" onclick="addCampoCylinder()">+ Agregar Cilindro</button>
+                        <button type="button" class="danger" onclick="removeCampoCylinder()">- Quitar</button>
+                    </div>
+
+                    <!-- ── NOTAS ──────────────────────────────────── -->
+                    <h3>📝 General Notes</h3>
+                    <div class="form-group">
+                        <textarea id="campo-notes" rows="4" placeholder="Observaciones generales del batch..."></textarea>
+                    </div>
+
+                    <!-- ── BOTONES ─────────────────────────────────── -->
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:20px">
+                        <button type="button" class="success" onclick="guardarEvaluacionCampo()">💾 Guardar Evaluación</button>
+                        <button type="button" class="info" onclick="generarPDFCampoActual()" id="btn-pdf-campo-form" disabled>📄 Generar PDF</button>
+                        <button type="button" class="secondary" onclick="nuevaEvaluacionCampo()">🗑️ Limpiar Form</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- EVALUACIONES REGISTRADAS -->
+            <div class="card">
+                <h2>📋 Evaluaciones Registradas</h2>
+                <div id="lista-campo"></div>
+            </div>
+        </div>
+
 
         <!-- SECCIÓN: ANÁLISIS DE DATA -->
         <div id="tab-analisis" class="tab-content">
@@ -1882,83 +2319,95 @@
         
 
 
+        // Single promise shared across all callers — initDB() is never called twice
+        var _dbReady = null;
+
         function initDB() {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open('ConcretoManagementDB', 4); // Incrementar versión
-                
-                request.onerror = () => reject(request.error);
-                request.onsuccess = () => {
+            if (_dbReady) return _dbReady;
+            _dbReady = new Promise(function(resolve, reject) {
+                // Use version 20 — higher than any previous build to avoid "lower version" error
+                var request = indexedDB.open('ConcretoManagementDB', 20);
+
+                request.onerror = function() {
+                    _dbReady = null; // allow retry on next call
+                    reject(request.error);
+                };
+
+                // onblocked fires if another tab has the DB open at an older version
+                request.onblocked = function() {
+                    console.warn('IndexedDB blocked — close other tabs and reload.');
+                    // Still wait for onsuccess — browser will unblock eventually
+                };
+
+                request.onsuccess = function() {
                     db = request.result;
+                    // Handle unexpected version changes from other tabs
+                    db.onversionchange = function() {
+                        db.close();
+                        db = null;
+                        _dbReady = null;
+                    };
                     resolve(db);
                 };
-                
-                request.onupgradeneeded = (event) => {
+
+                request.onupgradeneeded = function(event) {
                     db = event.target.result;
-                    
-                    if (!db.objectStoreNames.contains('clientes')) {
-                        db.createObjectStore('clientes', { keyPath: 'id', autoIncrement: true });
-                    }
-                    if (!db.objectStoreNames.contains('proyectos')) {
-                        db.createObjectStore('proyectos', { keyPath: 'id', autoIncrement: true });
-                    }
-                    if (!db.objectStoreNames.contains('materiales')) {
-                        db.createObjectStore('materiales', { keyPath: 'id', autoIncrement: true });
-                    }
-                    if (!db.objectStoreNames.contains('cotizaciones')) {
-                        db.createObjectStore('cotizaciones', { keyPath: 'id', autoIncrement: true });
-                    }
-                    if (!db.objectStoreNames.contains('mixdesigns')) {
-                        db.createObjectStore('mixdesigns', { keyPath: 'id', autoIncrement: true });
-                    }
-                    if (!db.objectStoreNames.contains('trials')) {
-                        db.createObjectStore('trials', { keyPath: 'id', autoIncrement: true });
-                    }
+                    var stores = [
+                        'clientes', 'proyectos', 'materiales', 'cotizaciones',
+                        'mixdesigns', 'trials', 'campo_evaluaciones'
+                    ];
+                    stores.forEach(function(name) {
+                        if (!db.objectStoreNames.contains(name)) {
+                            db.createObjectStore(name, { keyPath: 'id', autoIncrement: true });
+                        }
+                    });
                     if (!db.objectStoreNames.contains('settings')) {
                         db.createObjectStore('settings', { keyPath: 'key' });
                     }
                 };
             });
+            return _dbReady;
         }
 
-        function addRecord(storeName, data) {
+        async function addRecord(storeName, data) {
+            if (!db) await initDB();
             return new Promise((resolve, reject) => {
                 const transaction = db.transaction([storeName], 'readwrite');
                 const store = transaction.objectStore(storeName);
                 const request = store.add(data);
-                
                 request.onsuccess = () => resolve(request.result);
                 request.onerror = () => reject(request.error);
             });
         }
 
-        function updateRecord(storeName, data) {
+        async function updateRecord(storeName, data) {
+            if (!db) await initDB();
             return new Promise((resolve, reject) => {
                 const transaction = db.transaction([storeName], 'readwrite');
                 const store = transaction.objectStore(storeName);
                 const request = store.put(data);
-                
                 request.onsuccess = () => resolve(request.result);
                 request.onerror = () => reject(request.error);
             });
         }
 
-        function deleteRecord(storeName, id) {
+        async function deleteRecord(storeName, id) {
+            if (!db) await initDB();
             return new Promise((resolve, reject) => {
                 const transaction = db.transaction([storeName], 'readwrite');
                 const store = transaction.objectStore(storeName);
                 const request = store.delete(id);
-                
                 request.onsuccess = () => resolve();
                 request.onerror = () => reject(request.error);
             });
         }
 
-        function getRecord(storeName, id) {
+        async function getRecord(storeName, id) {
+            if (!db) await initDB();
             return new Promise((resolve, reject) => {
                 const transaction = db.transaction([storeName], 'readonly');
                 const store = transaction.objectStore(storeName);
                 const request = store.get(id);
-                
                 request.onsuccess = () => resolve(request.result);
                 request.onerror = () => reject(request.error);
             });
@@ -1990,12 +2439,15 @@
                     clientes: await getAllRecords('clientes'),
                     proyectos: await getAllRecords('proyectos'),
                     materiales: await getAllRecords('materiales'),
+                    cotizaciones: await getAllRecords('cotizaciones'),
                     mixdesigns: await getAllRecords('mixdesigns'),
-                    trials: await getAllRecords('trials')
+                    trials: await getAllRecords('trials'),
+                    campo_evaluaciones: await getAllRecords('campo_evaluaciones')
                 };
                 
                 // Incluir logo si existe
                 try {
+                    if (!db) await initDB();
                     const transaction = db.transaction(['settings'], 'readonly');
                     const store = transaction.objectStore('settings');
                     const request = store.get('logo');
@@ -2031,17 +2483,149 @@
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
                 
-                alert(`✅ Data exportada exitosamente!\n\nArchivo: ${nombreArchivo}\n\n` +
-                      `Clientes: ${data.clientes.length}\n` +
-                      `Proyectos: ${data.proyectos.length}\n` +
-                      `Materiales: ${data.materiales.length}\n` +
-                      `Mix Designs: ${data.mixdesigns.length}\n` +
-                      `Trial Mixes: ${data.trials.length}`);
+                alert('Data exportada!\n\nArchivo: ' + nombreArchivo + '\n\n' +
+                      'Clientes: '           + (data.clientes||[]).length + '\n' +
+                      'Proyectos: '          + (data.proyectos||[]).length + '\n' +
+                      'Materiales: '         + (data.materiales||[]).length + '\n' +
+                      'Cotizaciones: '       + (data.cotizaciones||[]).length + '\n' +
+                      'Mix Designs: '        + (data.mixdesigns||[]).length + '\n' +
+                      'Trial Mixes: '        + (data.trials||[]).length + '\n' +
+                      'Eval. de Campo: '     + (data.campo_evaluaciones||[]).length);
                 
             } catch (error) {
                 console.error('Error exportando:', error);
                 alert('❌ Error al exportar datos: ' + error.message);
             }
+        }
+
+
+        // ══════════════════════════════════════════════════════
+        // IMPORTAR DATA
+        // ══════════════════════════════════════════════════════
+
+        // Called by onchange on the file input in HTML
+        function handleImportFile(inputEl) {
+            if (!inputEl || !inputEl.files || inputEl.files.length === 0) return;
+            var file = inputEl.files[0];
+            // Reset so same file can be imported again
+            inputEl.value = '';
+            var reader = new FileReader();
+            reader.onerror = function() { alert('Error leyendo el archivo.'); };
+            reader.onload = function(ev) { runImport(ev.target.result); };
+            reader.readAsText(file, 'UTF-8');
+        }
+
+        // Keep old names as aliases in case they are referenced anywhere
+        function abrirImportador() {
+            document.getElementById('file-import-trigger').click();
+        }
+        function importarData(ev) { handleImportFile(ev.target); }
+
+        async function runImport(jsonText) {
+            // Parse
+            var data;
+            try { data = JSON.parse(jsonText); }
+            catch(e) { alert('No es JSON valido: ' + e.message); return; }
+
+            // Validate
+            if (!data || (!data.clientes && !data.mixdesigns && !data.trials && !data.proyectos && !data.materiales)) {
+                alert('Archivo no reconocido. Exporta primero desde esta aplicacion.');
+                return;
+            }
+
+            // Ensure DB ready
+            if (!db) {
+                try { await initDB(); }
+                catch(e) { alert('Base de datos no disponible: ' + e.message); return; }
+            }
+
+            var cls = (data.clientes   || []).length;
+            var prs = (data.proyectos  || []).length;
+            var mts = (data.materiales || []).length;
+            var cts = (data.cotizaciones || []).length;
+            var mds = (data.mixdesigns || []).length;
+            var trs = (data.trials     || []).length;
+            var ces = (data.campo_evaluaciones || []).length;
+
+            var lines = [
+                'IMPORTAR BACKUP',
+                '',
+                'Clientes:       ' + cls,
+                'Proyectos:      ' + prs,
+                'Materiales:     ' + mts,
+                'Cotizaciones:   ' + cts,
+                'Mix Designs:    ' + mds,
+                'Trial Mixes:    ' + trs,
+                'Eval Campo:     ' + ces,
+                '',
+                'Los registros existentes no seran eliminados.',
+                'Presiona OK para continuar.'
+            ];
+            if (!confirm(lines.join('\n'))) return;
+
+            var imported = 0, skipped = 0, errors = 0;
+
+            async function insertStore(storeName, records, keyField) {
+                if (!records || records.length === 0) return;
+                var existing = [];
+                try { existing = await getAllRecords(storeName); } catch(e) {}
+                for (var i = 0; i < records.length; i++) {
+                    var rec = records[i];
+                    var dup = false;
+                    if (keyField && rec[keyField]) {
+                        for (var j = 0; j < existing.length; j++) {
+                            if (String(existing[j][keyField]) === String(rec[keyField])) {
+                                dup = true; break;
+                            }
+                        }
+                    }
+                    if (dup) { skipped++; continue; }
+                    var obj = {};
+                    Object.keys(rec).forEach(function(k) { if (k !== 'id') obj[k] = rec[k]; });
+                    try { await addRecord(storeName, obj); imported++; }
+                    catch(e) { console.warn('insert error', storeName, e); errors++; }
+                }
+            }
+
+            await insertStore('clientes',           data.clientes,   'nombre');
+            await insertStore('proyectos',          data.proyectos,  'nombre');
+            await insertStore('materiales',         data.materiales, 'nombre');
+            await insertStore('cotizaciones',       data.cotizaciones || [], 'numero');
+            await insertStore('mixdesigns',         data.mixdesigns, 'nombre');
+            await insertStore('trials',             data.trials,     'trialId');
+            await insertStore('campo_evaluaciones', data.campo_evaluaciones || [], 'evalId');
+
+            // Restore logo
+            if (data.logo && !logoEmpresa) {
+                try {
+                    if (!db) await initDB();
+                    var tx = db.transaction(['settings'], 'readwrite');
+                    tx.objectStore('settings').put({ key: 'logo', value: data.logo });
+                    logoEmpresa = data.logo;
+                    var el = document.getElementById('empresa-logo');
+                    if (el) { el.src = data.logo; el.style.display = 'block'; }
+                } catch(e) {}
+            }
+
+            var result = [
+                'IMPORTACION COMPLETADA',
+                '',
+                'Importados:           ' + imported,
+                'Omitidos (existian):  ' + skipped
+            ];
+            if (errors > 0) result.push('Errores:              ' + errors);
+            result.push('');
+            result.push('La vista se actualizara ahora.');
+            alert(result.join('\n'));
+
+            try { await updateDashboard(); } catch(e) {}
+            try {
+                var t = document.querySelector('.tab.active');
+                if (t) {
+                    var m = (t.getAttribute('onclick') || '').match(/switchTab\('(\w+)'/);
+                    if (m) switchTab(m[1]);
+                }
+            } catch(e) {}
         }
 
         // ══════════════════════════════════════════════════════
@@ -2258,6 +2842,11 @@
                 loadMixDesignsSelect();
                 cargarClientesTrialSelect();
             }
+            if (tabName === 'campo') {
+                loadCampoEvaluaciones();
+                cargarSelectsCampo();
+                if (campoCylinderCount === 0) initCampoCylinders(4);
+            }
             if (tabName === 'analisis') {
                 updateAnalisisMixFilter();
                 updateAnalisisCharts();
@@ -2287,6 +2876,7 @@
         });
 
         async function guardarLogo(logoData) {
+            if (!db) await initDB();
             const transaction = db.transaction(['settings'], 'readwrite');
             const store = transaction.objectStore('settings');
             await store.put({ key: 'logo', value: logoData });
@@ -2294,6 +2884,7 @@
 
         async function cargarLogoGuardado() {
             try {
+                if (!db) await initDB();
                 const transaction = db.transaction(['settings'], 'readonly');
                 const store = transaction.objectStore('settings');
                 const request = store.get('logo');
@@ -4117,8 +4708,9 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
 
         // Obtiene el logo guardado como promesa
         function obtenerLogo() {
-            return new Promise((resolve) => {
+            return new Promise(async (resolve) => {
                 try {
+                    if (!db) await initDB();
                     const transaction = db.transaction(['settings'], 'readonly');
                     const store = transaction.objectStore('settings');
                     const request = store.get('logo');
@@ -4750,6 +5342,7 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             const sacosT  = (r.cemento.peso * factor) / 94;
             html += `<tr style="background:#eff6ff">
                 <td><strong>Cemento${tipoCem ? ' (' + tipoCem + ')' : ''}${hasSCMTrial ? ' (Portland)' : ''}</strong></td>
+                <td style="text-align:right;color:#0369a1;font-weight:600">${r.cemento.peso.toFixed(1)}</td>
                 <td style="text-align:right">${(r.cemento.peso * factor).toFixed(2)} lb</td>
                 <td style="text-align:right;color:#64748b">${sacosT.toFixed(3)} sacos</td>
             </tr>`;
@@ -4757,6 +5350,7 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             // ── SCMs ──────────────────────────────────────────────────
             const scmBgColors = ['#f5f3ff', '#faf5ff', '#ede9fe'];
             let totalCementicioTrial = r.cemento.peso * factor;
+            let totalCementicioYd    = r.cemento.peso;
             const scmRows = [];
             [1,2,3].forEach((i, ix) => {
                 const s = r[`scm${i}`];
@@ -4764,8 +5358,10 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
                     const scmLb   = (s.peso * factor).toFixed(2);
                     const scmSacs = (s.peso * factor / 94).toFixed(3);
                     totalCementicioTrial += s.peso * factor;
+                    totalCementicioYd    += s.peso;
                     scmRows.push(`<tr style="background:${scmBgColors[ix]}">
                         <td><strong>${s.tipo}</strong> <span style="font-size:11px;color:#7c3aed">(SCM ${i})</span></td>
+                        <td style="text-align:right;color:#0369a1;font-weight:600">${s.peso.toFixed(1)}</td>
                         <td style="text-align:right">${scmLb} lb</td>
                         <td style="text-align:right;color:#64748b">${scmSacs} sacos</td>
                     </tr>`);
@@ -4777,6 +5373,7 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             if (hasSCMTrial) {
                 html += `<tr style="background:#ddd6fe;font-weight:700">
                     <td style="color:#5b21b6">📊 Total Cementicio</td>
+                    <td style="text-align:right;color:#5b21b6">${totalCementicioYd.toFixed(1)}</td>
                     <td style="text-align:right;color:#5b21b6">${totalCementicioTrial.toFixed(2)} lb</td>
                     <td style="text-align:right;color:#5b21b6">${(totalCementicioTrial/94).toFixed(3)} sacos</td>
                 </tr>`;
@@ -4785,6 +5382,7 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             // ── Agua ──────────────────────────────────────────────────
             html += `<tr>
                 <td><strong>Agua Efectiva</strong></td>
+                <td style="text-align:right;color:#0369a1;font-weight:600">${r.agua.peso.toFixed(1)}</td>
                 <td style="text-align:right">${(r.agua.peso * factor).toFixed(2)} lb</td>
                 <td style="text-align:right;color:#64748b">${((r.agua.peso * factor) / 8.34).toFixed(3)} gal</td>
             </tr>`;
@@ -4792,6 +5390,7 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             // ── Agregado Grueso ───────────────────────────────────────
             html += `<tr>
                 <td><strong>Agregado Grueso</strong></td>
+                <td style="text-align:right;color:#0369a1;font-weight:600">${r.grueso.peso.toFixed(1)}</td>
                 <td style="text-align:right">${(r.grueso.peso * factor).toFixed(2)} lb</td>
                 <td></td>
             </tr>`;
@@ -4800,6 +5399,7 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             if (r.intermedio && r.intermedio.peso > 0) {
                 html += `<tr>
                     <td><strong>Agregado Intermedio</strong></td>
+                    <td style="text-align:right;color:#0369a1;font-weight:600">${r.intermedio.peso.toFixed(1)}</td>
                     <td style="text-align:right">${(r.intermedio.peso * factor).toFixed(2)} lb</td>
                     <td></td>
                 </tr>`;
@@ -4809,6 +5409,7 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             if (r.arena1 && r.arena1.peso > 0) {
                 html += `<tr>
                     <td><strong>Arena 1</strong></td>
+                    <td style="text-align:right;color:#0369a1;font-weight:600">${r.arena1.peso.toFixed(1)}</td>
                     <td style="text-align:right">${(r.arena1.peso * factor).toFixed(2)} lb</td>
                     <td></td>
                 </tr>`;
@@ -4816,6 +5417,7 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             if (r.arena2 && r.arena2.peso > 0) {
                 html += `<tr>
                     <td><strong>Arena 2</strong></td>
+                    <td style="text-align:right;color:#0369a1;font-weight:600">${r.arena2.peso.toFixed(1)}</td>
                     <td style="text-align:right">${(r.arena2.peso * factor).toFixed(2)} lb</td>
                     <td></td>
                 </tr>`;
@@ -4825,9 +5427,11 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             [1,2,3].forEach(i => {
                 const ad = r[`aditivo${i}`];
                 if (ad && ad.peso > 0 && ad.nombre) {
-                    const ozVal = (ad.peso * factor * 16).toFixed(2); // lb → oz
+                    const ozVal   = (ad.peso * factor * 16).toFixed(2);
+                    const ozPerYd = (ad.peso * 16).toFixed(2);
                     html += `<tr style="background:#fffbeb">
                         <td><strong>${ad.nombre}</strong></td>
+                        <td style="text-align:right;color:#0369a1;font-weight:600">${ad.peso.toFixed(3)} <span style="font-size:10px;color:#92400e">(${ozPerYd} oz)</span></td>
                         <td style="text-align:right">${(ad.peso * factor).toFixed(3)} lb</td>
                         <td style="text-align:right;color:#92400e">${ozVal} oz</td>
                     </tr>`;
@@ -4836,8 +5440,10 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
 
             // ── TOTAL ─────────────────────────────────────────────────
             const pesoTotalT = r.pesoTotal ? (r.pesoTotal * factor).toFixed(2) : '—';
+            const pesoTotalYd = r.pesoTotal ? r.pesoTotal.toFixed(1) : '—';
             html += `<tr style="background:#16a34a;color:white;font-weight:700">
                 <td><strong>TOTAL BATCH</strong></td>
+                <td style="text-align:right;opacity:0.85">${pesoTotalYd} lb/yd³</td>
                 <td style="text-align:right"><strong>${pesoTotalT} lb</strong></td>
                 <td style="text-align:right;font-size:11px">${tamano} ft³ batch</td>
             </tr>`;
@@ -6533,6 +7139,693 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
         }
 
 
+
+        // ══════════════════════════════════════════════════════════════
+        //  EVALUACIÓN DE CAMPO — JavaScript
+        // ══════════════════════════════════════════════════════════════
+
+        var campoEvalCounter = 0;
+        var currentCampoId   = null;
+        const CAMPO_MATS     = ['cem1','cem2','scm1','scm2','agg1','agg2','agg3','agg4','adm1','adm2','adm3','adm4','adm5','water'];
+        const CAMPO_MATS_MAT = ['cem1','cem2','scm1','scm2','agg1','agg2','agg3','agg4','adm1','adm2','adm3','adm4','adm5']; // have desc field
+        const CAMPO_MATS_AGG = ['agg1','agg2','agg3','agg4']; // have moist field
+
+        function generarCampoEvalId() {
+            var now  = new Date();
+            var yr   = now.getFullYear().toString().slice(-2);
+            var mo   = String(now.getMonth()+1).padStart(2,'0');
+            campoEvalCounter++;
+            var stored = parseInt(localStorage.getItem('campoEvalCounter') || '0') + 1;
+            localStorage.setItem('campoEvalCounter', stored);
+            return 'CE-' + yr + mo + '-' + String(stored).padStart(3,'0');
+        }
+
+        async function nuevaEvaluacionCampo() {
+            clearFormCampo();
+            await cargarSelectsCampo();
+            initCampoCylinders(4);
+            document.getElementById('btn-pdf-campo').disabled      = true;
+            document.getElementById('btn-pdf-campo-form').disabled = true;
+            currentCampoId = null;
+        }
+
+        function clearFormCampo() {
+            document.getElementById('form-campo').reset();
+            document.getElementById('campo-id-display').value = '';
+            document.getElementById('edit-campo-id').value    = '';
+            // clear all diff fields
+            CAMPO_MATS.forEach(function(m){ var el=document.getElementById('campo-'+m+'-diff'); if(el) el.value=''; });
+        }
+
+        async function cargarSelectsCampo() {
+            // clientes
+            var selC = document.getElementById('campo-cliente-id');
+            var clientes = await getAllRecords('clientes');
+            selC.innerHTML = '<option value="">Sin cliente</option>';
+            clientes.forEach(function(cl){ var o=document.createElement('option'); o.value=cl.id; o.textContent=cl.nombre; selC.appendChild(o); });
+            // trials for reference
+            var selT = document.getElementById('campo-trial-mix-id');
+            var trials = await getAllRecords('trials');
+            selT.innerHTML = '<option value="">Sin referencia</option>';
+            trials.forEach(function(t){ var o=document.createElement('option'); o.value=t.id; o.textContent=t.trialId+' — '+t.mixDesignNombre; selT.appendChild(o); });
+        }
+
+        async function cargarProyectosCampo() {
+            var clienteId = parseInt(document.getElementById('campo-cliente-id').value) || 0;
+            var sel = document.getElementById('campo-proyecto-id');
+            sel.innerHTML = '<option value="">Sin proyecto</option>';
+            if (!clienteId) return;
+            var proyectos = await getAllRecords('proyectos');
+            proyectos.filter(function(p){ return p.clienteId == clienteId; }).forEach(function(p){
+                var o=document.createElement('option'); o.value=p.id; o.textContent=p.nombre; sel.appendChild(o);
+            });
+        }
+
+        async function cargarDatosMixDesdeCampo() {
+            var trialId = parseInt(document.getElementById('campo-trial-mix-id').value) || 0;
+            if (!trialId) return;
+            var trial = await getRecord('trials', trialId);
+            if (!trial) return;
+            // Auto-fill some fields from trial
+            if (trial.clienteId) {
+                document.getElementById('campo-cliente-id').value = trial.clienteId;
+                await cargarProyectosCampo();
+                if (trial.proyectoId) document.getElementById('campo-proyecto-id').value = trial.proyectoId;
+            }
+            if (trial.ticketNumber) document.getElementById('campo-ticket').value = trial.ticketNumber;
+            document.getElementById('campo-req-strength').value  = trial.resistenciaObjetivo || '';
+        }
+
+        // ── % Diff calculation ────────────────────────────────────────
+        function calcCampoDiff(mat) {
+            var target = parseFloat(document.getElementById('campo-'+mat+'-target')?.value) || 0;
+            var actual = parseFloat(document.getElementById('campo-'+mat+'-actual')?.value) || 0;
+            var diffEl = document.getElementById('campo-'+mat+'-diff');
+            if (!diffEl) return;
+            if (target === 0) { diffEl.value = ''; return; }
+            var pct = ((actual - target) / target * 100).toFixed(2);
+            diffEl.value = pct + '%';
+            diffEl.style.color = Math.abs(parseFloat(pct)) > 5 ? '#dc2626' : '#16a34a';
+        }
+
+        // ── W/C Ratio ─────────────────────────────────────────────────
+        function calcCampoWCRatio() {
+            var waterActual = parseFloat(document.getElementById('campo-water-actual')?.value) || 0;
+            var waterAdded  = parseFloat(document.getElementById('campo-water-added')?.value)  || 0;
+            // Total water = batch water (actual) + water added in field
+            var totalWater  = waterActual + waterAdded;
+
+            // Use ACTUAL cement values for real W/C ratio
+            var cem1Actual  = parseFloat(document.getElementById('campo-cem1-actual')?.value)  || 0;
+            var cem2Actual  = parseFloat(document.getElementById('campo-cem2-actual')?.value)  || 0;
+            var scm1Actual  = parseFloat(document.getElementById('campo-scm1-actual')?.value)  || 0;
+            var scm2Actual  = parseFloat(document.getElementById('campo-scm2-actual')?.value)  || 0;
+            var totalCemActual = cem1Actual + cem2Actual + scm1Actual + scm2Actual;
+
+            // Fallback to design values if actuals not entered
+            if (totalCemActual === 0) {
+                totalCemActual  = (parseFloat(document.getElementById('campo-cem1-design')?.value) || 0)
+                                + (parseFloat(document.getElementById('campo-cem2-design')?.value) || 0)
+                                + (parseFloat(document.getElementById('campo-scm1-design')?.value) || 0)
+                                + (parseFloat(document.getElementById('campo-scm2-design')?.value) || 0);
+            }
+
+            // total water/cy
+            var totalWaterEl = document.getElementById('campo-total-water-cy');
+            if (totalWaterEl) totalWaterEl.value = totalWater > 0 ? totalWater.toFixed(1) : '';
+
+            // actual W/C
+            var wcEl = document.getElementById('campo-actual-wc');
+            if (wcEl) {
+                if (totalCemActual > 0 && totalWater > 0) {
+                    wcEl.value = (totalWater / totalCemActual).toFixed(3);
+                } else { wcEl.value = ''; }
+            }
+        }
+
+        // ── Yield calculation ─────────────────────────────────────────
+        // Unit Weight (lb/ft³) = (Wt_bucket+concrete - Wt_bucket) / Bucket_Volume
+        // Yield (ft³/yd³)      = Total_Batch_Weight / Unit_Weight
+        // Yield CY             = Yield_ft3 / 27
+        // Yield %              = (Yield_CY / Qty_Yards) * 100  [if qty yards > 0]
+        function calcCampoYield() {
+            var wtBucket     = parseFloat(document.getElementById('campo-wt-bucket')?.value)      || 0;
+            var volBucket    = parseFloat(document.getElementById('campo-vol-bucket')?.value)     || 0;
+            var wtBucketConc = parseFloat(document.getElementById('campo-wt-bucket-conc')?.value) || 0;
+
+            // Unit weight — only calculate when all three inputs are present
+            if (wtBucketConc > wtBucket && volBucket > 0) {
+                var unitWt  = (wtBucketConc - wtBucket) / volBucket;  // lb/ft³
+                document.getElementById('campo-batch-unit-wt').value = unitWt.toFixed(2);
+                document.getElementById('campo-unit-weight').value   = unitWt.toFixed(2);
+
+                // Total batch weight: all material ACTUAL values
+                // Water row = campo-water-actual (batch water) + campo-water-added (field addition)
+                var totalBatch = 0;
+                ['cem1','cem2','scm1','scm2','agg1','agg2','agg3','agg4',
+                 'adm1','adm2','adm3','adm4','adm5'].forEach(function(m) {
+                    totalBatch += parseFloat(document.getElementById('campo-'+m+'-actual')?.value) || 0;
+                });
+                // Water: actual (from batch) + water added in field
+                var waterActual = parseFloat(document.getElementById('campo-water-actual')?.value) || 0;
+                var waterAdded  = parseFloat(document.getElementById('campo-water-added')?.value)  || 0;
+                totalBatch += waterActual + waterAdded;
+
+                if (unitWt > 0 && totalBatch > 0) {
+                    var yieldFt3 = totalBatch / unitWt;
+                    var yieldCy  = yieldFt3 / 27;
+                    document.getElementById('campo-yield-ft3').value = yieldFt3.toFixed(3);
+
+                    // Yield % = yield CY / ordered yards * 100 (if ordered yards entered)
+                    var qtyYards = parseFloat(document.getElementById('campo-qty-yards')?.value) || 0;
+                    var yieldPctStr;
+                    if (qtyYards > 0) {
+                        var yieldPct = (yieldCy / qtyYards * 100).toFixed(1);
+                        yieldPctStr  = yieldPct + '% / ' + yieldCy.toFixed(3) + ' CY';
+                    } else {
+                        yieldPctStr  = yieldCy.toFixed(3) + ' CY';
+                    }
+                    document.getElementById('campo-yield-pct').value = yieldPctStr;
+                }
+            }
+        }
+
+        // ── Cylinders ────────────────────────────────────────────────
+        var campoCylinderCount = 0;
+        function initCampoCylinders(n) {
+            campoCylinderCount = 0;
+            document.getElementById('campo-cilindros-body').innerHTML = '';
+            for (var i=0; i<n; i++) addCampoCylinder();
+        }
+
+        function addCampoCylinder() {
+            campoCylinderCount++;
+            var n = campoCylinderCount;
+            var ages = [1,3,7,14,28,56,90];
+            var defaultAge = ages[n-1] !== undefined ? ages[n-1] : 28;
+            var optStr = ages.map(function(a){ return '<option value="'+a+'"'+(a===defaultAge?' selected':'')+'>'+a+'</option>'; }).join('');
+            optStr += '<option value="custom">Otro...</option>';
+            var row = document.createElement('tr');
+            row.id = 'campo-cyl-row-'+n;
+            row.innerHTML = '<td>' +
+                '<select id="cyl-c-age-'+n+'" onchange="campoCylAgeChange('+n+')" style="width:70px">'+ optStr +'</select>' +
+                '<input type="number" id="cyl-c-age-custom-'+n+'" style="display:none;width:60px;margin-top:4px" placeholder="días">' +
+                '</td>' +
+                '<td><input type="date" id="cyl-c-fecha-'+n+'"></td>' +
+                '<td style="text-align:right"><input type="number" id="cyl-c-result-'+n+'" step="1" style="text-align:right" oninput="calcCylPct('+n+')"></td>' +
+                '<td style="text-align:right"><input type="text" id="cyl-c-ce-'+n+'" readonly class="calculated" style="text-align:right"></td>' +
+                '<td style="text-align:right"><input type="text" id="cyl-c-pct-'+n+'" readonly class="calculated" style="text-align:right"></td>' +
+                '<td><input type="text" id="cyl-c-obs-'+n+'" placeholder="Normal, Break type..."></td>';
+            document.getElementById('campo-cilindros-body').appendChild(row);
+        }
+
+        function removeCampoCylinder() {
+            if (campoCylinderCount <= 1) return;
+            var row = document.getElementById('campo-cyl-row-'+campoCylinderCount);
+            if (row) row.remove();
+            campoCylinderCount--;
+        }
+
+        function campoCylAgeChange(n) {
+            var sel = document.getElementById('cyl-c-age-'+n);
+            var custom = document.getElementById('cyl-c-age-custom-'+n);
+            custom.style.display = sel.value === 'custom' ? 'block' : 'none';
+        }
+
+        function calcCylPct(n) {
+            var result = parseFloat(document.getElementById('cyl-c-result-'+n)?.value) || 0;
+            var reqStr = parseFloat(document.getElementById('campo-req-strength')?.value) || 0;
+            var pctEl  = document.getElementById('cyl-c-pct-'+n);
+            if (!pctEl) return;
+            if (reqStr > 0 && result > 0) {
+                var pct = (result / reqStr * 100).toFixed(0);
+                pctEl.value = pct + '%';
+                pctEl.style.color = parseFloat(pct) >= 100 ? '#16a34a' : '#dc2626';
+            } else { pctEl.value = ''; }
+        }
+
+        function getCampoCylinders() {
+            var cyls = [];
+            for (var i=1; i<=campoCylinderCount; i++) {
+                var ageEl = document.getElementById('cyl-c-age-'+i);
+                var age   = ageEl?.value === 'custom' ? (parseInt(document.getElementById('cyl-c-age-custom-'+i)?.value) || 0) : parseInt(ageEl?.value || '0');
+                cyls.push({
+                    num:         i,
+                    age:         age,
+                    fechaEnsayo: document.getElementById('cyl-c-fecha-'+i)?.value || '',
+                    result:      parseFloat(document.getElementById('cyl-c-result-'+i)?.value) || 0,
+                    ce:          document.getElementById('cyl-c-ce-'+i)?.value || '',
+                    pct:         document.getElementById('cyl-c-pct-'+i)?.value || '',
+                    obs:         document.getElementById('cyl-c-obs-'+i)?.value || ''
+                });
+            }
+            return cyls;
+        }
+
+        // ── Build material object ────────────────────────────────────
+        function getCampoMaterials() {
+            var mats = {};
+            CAMPO_MATS.forEach(function(m) {
+                var hasDesc  = CAMPO_MATS_MAT.includes(m);
+                var hasMoist = CAMPO_MATS_AGG.includes(m);
+                mats[m] = {
+                    desc:   hasDesc  ? (document.getElementById('campo-'+m+'-desc')?.value  || '') : '',
+                    moist:  hasMoist ? (parseFloat(document.getElementById('campo-'+m+'-moist')?.value)  || 0) : 0,
+                    target: parseFloat(document.getElementById('campo-'+m+'-target')?.value) || 0,
+                    actual: parseFloat(document.getElementById('campo-'+m+'-actual')?.value) || 0,
+                    diff:   document.getElementById('campo-'+m+'-diff')?.value  || '',
+                    design: parseFloat(document.getElementById('campo-'+m+'-design')?.value) || 0
+                };
+            });
+            return mats;
+        }
+
+        // ── Save ──────────────────────────────────────────────────────
+        async function guardarEvaluacionCampo() {
+            try {
+            if (!db) { try { await initDB(); } catch(e) { alert('❌ Base de datos no disponible. Recarga la página.'); return; } }
+            var fecha = document.getElementById('campo-fecha').value;
+            var ticket = document.getElementById('campo-ticket').value.trim();
+            if (!fecha) { alert('⚠️ La fecha es requerida.'); return; }
+
+            var editId = document.getElementById('edit-campo-id').value;
+            var evalId = document.getElementById('campo-id-display').value || generarCampoEvalId();
+
+            var clienteSel   = document.getElementById('campo-cliente-id');
+            var proyectoSel  = document.getElementById('campo-proyecto-id');
+            var clienteNom   = clienteSel  ? (clienteSel.options[clienteSel.selectedIndex]   || {}).text || '' : '';
+            var proyectoNom  = proyectoSel ? (proyectoSel.options[proyectoSel.selectedIndex] || {}).text || '' : '';
+
+            var eval_ = {
+                evalId:           evalId,
+                week:             document.getElementById('campo-week').value || '',
+                fecha:            fecha,
+                hora:             document.getElementById('campo-hora').value || '',
+                ticketNumber:     ticket,
+                mixCode:          document.getElementById('campo-mix-code').value.trim(),
+                mixDesc:          document.getElementById('campo-mix-desc').value.trim(),
+                tipoEval:         document.getElementById('campo-tipo-eval').value,
+                trialMixRef:      document.getElementById('campo-trial-mix-id').value || '',
+                clienteId:        parseInt(clienteSel?.value) || 0,
+                clienteNombre:    clienteNom === 'Sin cliente' ? '' : clienteNom,
+                proyectoId:       parseInt(proyectoSel?.value) || 0,
+                proyectoNombre:   proyectoNom === 'Sin proyecto' ? '' : proyectoNom,
+                structure:        document.getElementById('campo-structure').value.trim(),
+                madeBy:           document.getElementById('campo-made-by').value.trim(),
+                commercialLab:    document.getElementById('campo-commercial-lab').value.trim(),
+                batchPlant:       document.getElementById('campo-batch-plant').value.trim(),
+                qtyYards:         parseFloat(document.getElementById('campo-qty-yards').value) || 0,
+                truckNumber:      document.getElementById('campo-truck-number').value.trim(),
+                truckDriver:      document.getElementById('campo-truck-driver').value.trim(),
+                reqStrength:      parseFloat(document.getElementById('campo-req-strength').value) || 0,
+                parallelTest:     document.getElementById('campo-parallel-test').value,
+                materials:        getCampoMaterials(),
+                waterAdded:       parseFloat(document.getElementById('campo-water-added').value) || 0,
+                totalWaterCy:     parseFloat(document.getElementById('campo-total-water-cy').value) || 0,
+                totalMoisture:    parseFloat(document.getElementById('campo-total-moisture').value) || 0,
+                actualWC:         document.getElementById('campo-actual-wc').value || '',
+                slumpTarget:      parseFloat(document.getElementById('campo-slump-target').value) || 0,
+                slumpPlant:       parseFloat(document.getElementById('campo-slump-plant').value) || 0,
+                slumpProject:     parseFloat(document.getElementById('campo-slump-project').value) || 0,
+                tempPlant:        parseFloat(document.getElementById('campo-temp-plant').value) || 0,
+                tempProject:      parseFloat(document.getElementById('campo-temp-project').value) || 0,
+                airTarget:        parseFloat(document.getElementById('campo-air-target').value) || 0,
+                airPlant:         parseFloat(document.getElementById('campo-air-plant').value) || 0,
+                airActual:        parseFloat(document.getElementById('campo-air-actual').value) || 0,
+                wtBucket:         parseFloat(document.getElementById('campo-wt-bucket').value) || 0,
+                volBucket:        parseFloat(document.getElementById('campo-vol-bucket').value) || 0,
+                wtBucketConc:     parseFloat(document.getElementById('campo-wt-bucket-conc').value) || 0,
+                designUnitWt:     parseFloat(document.getElementById('campo-design-unit-wt').value) || 0,
+                batchUnitWt:      document.getElementById('campo-batch-unit-wt').value || '',
+                unitWeight:       document.getElementById('campo-unit-weight').value || '',
+                yieldFt3:         document.getElementById('campo-yield-ft3').value || '',
+                yieldPct:         document.getElementById('campo-yield-pct').value || '',
+                cylinders:        getCampoCylinders(),
+                notes:            document.getElementById('campo-notes').value,
+                fechaCreacion:    new Date().toISOString()
+            };
+
+            if (editId) {
+                eval_.id = parseInt(editId);
+                await updateRecord('campo_evaluaciones', eval_);
+                alert('✅ Evaluación actualizada: ' + evalId);
+            } else {
+                await addRecord('campo_evaluaciones', eval_);
+                alert('✅ Evaluación guardada: ' + evalId);
+            }
+
+            document.getElementById('campo-id-display').value = evalId;
+            currentCampoId = evalId;
+            document.getElementById('btn-pdf-campo').disabled      = false;
+            document.getElementById('btn-pdf-campo-form').disabled = false;
+            await loadCampoEvaluaciones();
+            } catch(err) {
+                console.error('Error guardando evaluación de campo:', err);
+                alert('❌ Error al guardar: ' + err.message + '\n\nRevisa la consola para más detalles.');
+            }
+        }
+
+        // ── Load list ─────────────────────────────────────────────────
+        async function loadCampoEvaluaciones() {
+            try {
+            if (!db) { try { await initDB(); } catch(e) { return; } }
+            var evals = await getAllRecords('campo_evaluaciones');
+            var container = document.getElementById('lista-campo');
+            if (!evals || evals.length === 0) {
+                container.innerHTML = '<div class="empty-state">No hay evaluaciones registradas</div>';
+                return;
+            }
+            // apply search filter
+            var search = (document.getElementById('search-campo')?.value || '').toLowerCase();
+            if (search) evals = evals.filter(function(e){ return (e.evalId+e.ticketNumber+e.clienteNombre+e.batchPlant+e.mixCode).toLowerCase().includes(search); });
+
+            var html = '<table><thead><tr>' +
+                '<th>ID</th><th>Ticket</th><th>Fecha</th><th>Cliente</th><th>Batch Plant</th><th>Mix Code</th><th>Tipo Eval</th><th>Cil.</th><th>Acciones</th>' +
+                '</tr></thead><tbody>';
+            evals.slice().reverse().forEach(function(ev) {
+                var tipoB = ev.tipoEval ? '<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:20px;font-size:0.78rem;font-weight:600">'+ev.tipoEval+'</span>' : '—';
+                html += '<tr>' +
+                    '<td><span class="trial-badge">'+ev.evalId+'</span></td>' +
+                    '<td style="font-family:monospace;font-size:0.85rem">'+(ev.ticketNumber||'—')+'</td>' +
+                    '<td>'+new Date(ev.fecha+'T00:00:00').toLocaleDateString()+'</td>' +
+                    '<td>'+(ev.clienteNombre||'—')+'</td>' +
+                    '<td>'+(ev.batchPlant||'—')+'</td>' +
+                    '<td>'+(ev.mixCode||'—')+'</td>' +
+                    '<td>'+tipoB+'</td>' +
+                    '<td>'+(ev.cylinders?ev.cylinders.length:0)+'</td>' +
+                    '<td class="actions">' +
+                        '<button class="success" onclick="generarPDFCampoPorId('+ev.id+')" title="PDF">📄 PDF</button>' +
+                        '<button class="secondary" onclick="editarCampoEval('+ev.id+')">Editar</button>' +
+                        '<button class="danger" onclick="eliminarCampoEval('+ev.id+')">Eliminar</button>' +
+                    '</td>' +
+                '</tr>';
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+            } catch(err) { console.error('loadCampoEvaluaciones:', err); }
+        }
+
+        function filtrarEvaluaciones() { loadCampoEvaluaciones(); }
+
+        async function eliminarCampoEval(id) {
+            if (!confirm('¿Eliminar esta evaluación?')) return;
+            await deleteRecord('campo_evaluaciones', id);
+            await loadCampoEvaluaciones();
+        }
+
+        async function editarCampoEval(id) {
+            var ev = await getRecord('campo_evaluaciones', id);
+            if (!ev) return;
+            await cargarSelectsCampo();
+            document.getElementById('edit-campo-id').value    = ev.id;
+            document.getElementById('campo-id-display').value = ev.evalId;
+            document.getElementById('campo-week').value       = ev.week || '';
+            document.getElementById('campo-fecha').value      = ev.fecha;
+            document.getElementById('campo-hora').value       = ev.hora || '';
+            document.getElementById('campo-ticket').value     = ev.ticketNumber || '';
+            document.getElementById('campo-mix-code').value   = ev.mixCode || '';
+            document.getElementById('campo-mix-desc').value   = ev.mixDesc || '';
+            document.getElementById('campo-tipo-eval').value  = ev.tipoEval || '';
+            document.getElementById('campo-trial-mix-id').value = ev.trialMixRef || '';
+            document.getElementById('campo-cliente-id').value = ev.clienteId || '';
+            await cargarProyectosCampo();
+            document.getElementById('campo-proyecto-id').value = ev.proyectoId || '';
+            document.getElementById('campo-structure').value   = ev.structure || '';
+            document.getElementById('campo-made-by').value     = ev.madeBy || '';
+            document.getElementById('campo-commercial-lab').value = ev.commercialLab || '';
+            document.getElementById('campo-batch-plant').value  = ev.batchPlant || '';
+            document.getElementById('campo-qty-yards').value    = ev.qtyYards || '';
+            document.getElementById('campo-truck-number').value = ev.truckNumber || '';
+            document.getElementById('campo-truck-driver').value = ev.truckDriver || '';
+            document.getElementById('campo-req-strength').value = ev.reqStrength || '';
+            document.getElementById('campo-parallel-test').value = ev.parallelTest || '';
+            // materials
+            if (ev.materials) {
+                CAMPO_MATS.forEach(function(m) {
+                    var mat = ev.materials[m] || {};
+                    var descEl = document.getElementById('campo-'+m+'-desc');
+                    if (descEl) descEl.value = mat.desc || '';
+                    var moistEl = document.getElementById('campo-'+m+'-moist');
+                    if (moistEl) moistEl.value = mat.moist || '';
+                    var tEl = document.getElementById('campo-'+m+'-target');
+                    if (tEl) tEl.value = mat.target || '';
+                    var aEl = document.getElementById('campo-'+m+'-actual');
+                    if (aEl) aEl.value = mat.actual || '';
+                    var dEl = document.getElementById('campo-'+m+'-design');
+                    if (dEl) dEl.value = mat.design || '';
+                    calcCampoDiff(m);
+                });
+            }
+            document.getElementById('campo-water-added').value    = ev.waterAdded || '';
+            document.getElementById('campo-total-moisture').value = ev.totalMoisture || '';
+            document.getElementById('campo-slump-target').value   = ev.slumpTarget || '';
+            document.getElementById('campo-slump-plant').value    = ev.slumpPlant || '';
+            document.getElementById('campo-slump-project').value  = ev.slumpProject || '';
+            document.getElementById('campo-temp-plant').value     = ev.tempPlant || '';
+            document.getElementById('campo-temp-project').value   = ev.tempProject || '';
+            document.getElementById('campo-air-target').value     = ev.airTarget || '';
+            document.getElementById('campo-air-plant').value      = ev.airPlant || '';
+            document.getElementById('campo-air-actual').value     = ev.airActual || '';
+            document.getElementById('campo-wt-bucket').value      = ev.wtBucket || '';
+            document.getElementById('campo-vol-bucket').value     = ev.volBucket || '';
+            document.getElementById('campo-wt-bucket-conc').value = ev.wtBucketConc || '';
+            document.getElementById('campo-design-unit-wt').value = ev.designUnitWt || '';
+            document.getElementById('campo-batch-unit-wt').value  = ev.batchUnitWt || '';
+            document.getElementById('campo-unit-weight').value    = ev.unitWeight || '';
+            document.getElementById('campo-yield-ft3').value      = ev.yieldFt3 || '';
+            document.getElementById('campo-yield-pct').value      = ev.yieldPct || '';
+            document.getElementById('campo-notes').value          = ev.notes || '';
+            calcCampoWCRatio();
+            // cylinders
+            var cyls = ev.cylinders || [];
+            campoCylinderCount = 0;
+            document.getElementById('campo-cilindros-body').innerHTML = '';
+            if (cyls.length === 0) { initCampoCylinders(4); }
+            else {
+                cyls.forEach(function(){ addCampoCylinder(); });
+                cyls.forEach(function(cyl, i) {
+                    var n = i+1;
+                    var ageEl = document.getElementById('cyl-c-age-'+n);
+                    var stdAges = [1,3,7,14,28,56,90];
+                    if (stdAges.includes(cyl.age)) { ageEl.value = cyl.age; }
+                    else { ageEl.value='custom'; document.getElementById('cyl-c-age-custom-'+n).style.display='block'; document.getElementById('cyl-c-age-custom-'+n).value=cyl.age; }
+                    document.getElementById('cyl-c-fecha-'+n).value  = cyl.fechaEnsayo || '';
+                    document.getElementById('cyl-c-result-'+n).value = cyl.result || '';
+                    document.getElementById('cyl-c-ce-'+n).value     = cyl.ce || '';
+                    document.getElementById('cyl-c-obs-'+n).value    = cyl.obs || '';
+                    calcCylPct(n);
+                });
+            }
+            currentCampoId = ev.evalId;
+            document.getElementById('btn-pdf-campo').disabled      = false;
+            document.getElementById('btn-pdf-campo-form').disabled = false;
+            switchTab('campo');
+            window.scrollTo({top:0, behavior:'smooth'});
+        }
+
+        // ── PDF ───────────────────────────────────────────────────────
+        async function generarPDFCampoActual() {
+            var evalId = document.getElementById('campo-id-display').value;
+            if (!evalId) { alert('⚠️ Guarda la evaluación primero.'); return; }
+            var evals = await getAllRecords('campo_evaluaciones');
+            var ev = evals.find(function(e){ return e.evalId === evalId; });
+            if (!ev) { alert('⚠️ Guarda primero.'); return; }
+            generarPDFCampoData(ev);
+        }
+
+        async function generarPDFCampoPorId(id) {
+            var ev = await getRecord('campo_evaluaciones', id);
+            if (!ev) { alert('No encontrado'); return; }
+            generarPDFCampoData(ev);
+        }
+
+        function generarPDFCampoData(ev) {
+            var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Campo Eval - '+ev.evalId+'</title>';
+            html += '<style>';
+            html += 'body{font-family:Arial,sans-serif;margin:30px;background:white;color:#222;font-size:13px}';
+            html += '.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #16a34a;padding-bottom:16px;margin-bottom:24px}';
+            html += '.h-title h1{color:#16a34a;font-size:1.7em;margin:0 0 4px 0}';
+            html += '.h-title p{margin:2px 0;color:#555;font-size:12px}';
+            html += '.logo-box img{max-width:240px;max-height:90px}';
+            html += '.logo-box .placeholder{background:#16a34a;color:white;padding:10px 20px;border-radius:6px;font-size:18px;font-weight:bold}';
+            html += 'h2{color:#16a34a;font-size:1.15em;border-bottom:2px solid #16a34a;padding-bottom:6px;margin:22px 0 10px}';
+            html += '.info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#f8f9fa;padding:14px;border-radius:8px;margin-bottom:14px}';
+            html += '.info-item strong{color:#16a34a;display:block;font-size:11px;margin-bottom:2px}';
+            html += 'table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px}';
+            html += 'th{background:#16a34a;color:white;padding:8px;text-align:left;font-weight:bold}';
+            html += 'th.r,td.r{text-align:right}';
+            html += 'td{border:1px solid #ddd;padding:7px 8px}';
+            html += 'tr:nth-child(even){background:#f8f9fa}';
+            html += '.badge{display:inline-block;background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700}';
+            html += '.warn{background:#fff3cd;color:#856404}';
+            html += '.ok{color:#16a34a;font-weight:700} .fail{color:#dc2626;font-weight:700}';
+            html += '.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0}';
+            html += '.stat-box{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px;text-align:center}';
+            html += '.stat-box .label{font-size:10px;color:#666;margin-bottom:4px}';
+            html += '.stat-box .val{font-size:1.3em;font-weight:700;color:#16a34a}';
+            html += '@media print{body{margin:15px}}';
+            html += '</style></head><body>';
+
+            // Header
+            html += '<div class="header"><div class="h-title">';
+            html += '<h1>CONCRETE MIX EVALUATION — CAMPO</h1>';
+            html += '<p>ID: <strong>'+ev.evalId+'</strong>'+(ev.ticketNumber ? ' &nbsp;|&nbsp; Ticket: <strong>'+ev.ticketNumber+'</strong>' : '')+(ev.week?' &nbsp;|&nbsp; Week: <strong>'+ev.week+'</strong>':'')+'</p>';
+            if (ev.tipoEval) html += '<p><span class="badge">'+ev.tipoEval+'</span></p>';
+            html += '</div><div class="logo-box">';
+            if (typeof logoEmpresa !== 'undefined' && logoEmpresa) html += '<img src="'+logoEmpresa+'" alt="Logo">';
+            else html += '<div class="placeholder">MIXTEC PRO</div>';
+            html += '</div></div>';
+
+            // Info general
+            html += '<h2>Información General</h2>';
+            html += '<div class="info-grid">';
+            var pairs = [
+                ['Fecha', new Date(ev.fecha+'T00:00:00').toLocaleDateString('es-ES')],
+                ['Hora', ev.hora||'—'],
+                ['Mix Code', ev.mixCode||'—'],
+                ['Mix Description', ev.mixDesc||'—'],
+                ['Batch Plant', ev.batchPlant||'—'],
+                ['Qty Yards', ev.qtyYards ? ev.qtyYards+' yd³' : '—'],
+                ['Truck #', ev.truckNumber||'—'],
+                ['Truck Driver', ev.truckDriver||'—'],
+                ['Cliente', ev.clienteNombre||'—'],
+                ['Proyecto / Job', ev.proyectoNombre||'—'],
+                ['Structure', ev.structure||'—'],
+                ['Made By', ev.madeBy||'—'],
+                ['Req. Strength', ev.reqStrength ? ev.reqStrength+' psi' : '—'],
+                ['Parallel Test', ev.parallelTest||'No'],
+                ['Commercial Lab', ev.commercialLab||'—']
+            ];
+            pairs.forEach(function(p){ html += '<div class="info-item"><strong>'+p[0]+'</strong>'+p[1]+'</div>'; });
+            html += '</div>';
+
+            // Fresh properties stat boxes
+            html += '<h2>Propiedades del Concreto Fresco</h2>';
+            html += '<div class="stat-row">';
+            html += '<div class="stat-box"><div class="label">Slump Target</div><div class="val">'+(ev.slumpTarget||'—')+' in</div></div>';
+            html += '<div class="stat-box"><div class="label">Slump @ Plant</div><div class="val">'+(ev.slumpPlant||'—')+' in</div></div>';
+            html += '<div class="stat-box"><div class="label">Slump @ Project</div><div class="val">'+(ev.slumpProject||'—')+' in</div></div>';
+            html += '<div class="stat-box"><div class="label">Actual W/C</div><div class="val">'+(ev.actualWC||'—')+'</div></div>';
+            html += '</div>';
+            html += '<div class="stat-row">';
+            html += '<div class="stat-box"><div class="label">Temp @ Plant</div><div class="val">'+(ev.tempPlant||'—')+' °F</div></div>';
+            html += '<div class="stat-box"><div class="label">Temp @ Project</div><div class="val">'+(ev.tempProject||'—')+' °F</div></div>';
+            html += '<div class="stat-box"><div class="label">Air @ Plant</div><div class="val">'+(ev.airPlant||'—')+' %</div></div>';
+            html += '<div class="stat-box"><div class="label">Air Content Target</div><div class="val">'+(ev.airTarget||'—')+' %</div></div>';
+            html += '</div>';
+
+            // Water
+            html += '<h2>Agua</h2>';
+            html += '<div class="info-grid">';
+            html += '<div class="info-item"><strong>Water Added</strong>'+(ev.waterAdded||0)+' lb</div>';
+            html += '<div class="info-item"><strong>Total Water/CY</strong>'+(ev.totalWaterCy||'—')+' lb</div>';
+            html += '<div class="info-item"><strong>Total Moisture</strong>'+(ev.totalMoisture||'—')+' %</div>';
+            html += '</div>';
+
+            // Yield
+            html += '<h2>Yield & Peso Unitario</h2>';
+            html += '<div class="info-grid">';
+            html += '<div class="info-item"><strong>Design Unit Weight</strong>'+(ev.designUnitWt||'—')+' lb/ft³</div>';
+            html += '<div class="info-item"><strong>Batch Unit Weight</strong>'+(ev.batchUnitWt||'—')+' lb/ft³</div>';
+            html += '<div class="info-item"><strong>Yield</strong>'+(ev.yieldFt3||'—')+' ft³ &nbsp; '+(ev.yieldPct||'')+'</div>';
+            html += '</div>';
+
+            // Materials table
+            html += '<h2>Materiales del Batch</h2>';
+            html += '<table><thead><tr><th>Material</th><th>Descripción</th><th class="r">Moist%</th><th class="r">Target</th><th class="r">Actual</th><th class="r">%Diff</th><th class="r">Design</th></tr></thead><tbody>';
+            var matLabels = {cem1:'Cement 1',cem2:'Cement 2',scm1:'SCM 1',scm2:'SCM 2',agg1:'Aggregate 1',agg2:'Aggregate 2',agg3:'Aggregate 3',agg4:'Aggregate 4',adm1:'Admixture 1',adm2:'Admixture 2',adm3:'Admixture 3',adm4:'Admixture 4',adm5:'Admixture 5',water:'Water'};
+            var mats = ev.materials || {};
+            CAMPO_MATS.forEach(function(m) {
+                var mat = mats[m] || {};
+                if (!mat.target && !mat.actual && !mat.desc) return;
+                var diffNum = parseFloat(mat.diff) || 0;
+                var diffCls = Math.abs(diffNum) > 5 ? 'fail' : 'ok';
+                html += '<tr><td><strong>'+matLabels[m]+'</strong></td><td>'+(mat.desc||'')+'</td><td class="r">'+(mat.moist||'')+'</td><td class="r">'+(mat.target||'')+'</td><td class="r">'+(mat.actual||'')+'</td><td class="r '+diffCls+'">'+(mat.diff||'')+'</td><td class="r">'+(mat.design||'')+'</td></tr>';
+            });
+            html += '</tbody></table>';
+
+            // Cylinders
+            if (ev.cylinders && ev.cylinders.length > 0) {
+                html += '<h2>Evaluation Cylinders</h2>';
+                html += '<table><thead><tr><th>#</th><th>Age</th><th>Fecha Ensayo</th><th class="r">Result (psi)</th><th class="r">% Req Str.</th><th>Obs.</th></tr></thead><tbody>';
+                ev.cylinders.forEach(function(cyl) {
+                    var pctNum = parseFloat(cyl.pct) || 0;
+                    var cls    = pctNum >= 100 ? 'ok' : (pctNum > 0 ? 'fail' : '');
+                    html += '<tr><td>'+cyl.num+'</td><td>'+cyl.age+' días</td><td>'+(cyl.fechaEnsayo?new Date(cyl.fechaEnsayo+'T00:00:00').toLocaleDateString('es-ES'):'—')+'</td><td class="r"><strong>'+(cyl.result||'—')+'</strong></td><td class="r '+cls+'">'+(cyl.pct||'—')+'</td><td>'+(cyl.obs||'')+'</td></tr>';
+                });
+                html += '</tbody></table>';
+            }
+
+            // ── PSI vs Age Chart ────────────────────────────────
+            if (ev.cylinders && ev.cylinders.length > 0) {
+                var cylWithResults = ev.cylinders.filter(function(cy) {
+                    return cy.result && parseFloat(cy.result) > 0;
+                });
+                if (cylWithResults.length > 0) {
+                    // Sort by age numerically
+                    var chartData = cylWithResults.map(function(cy) {
+                        return { age: parseFloat(cy.age) || 0, psi: parseFloat(cy.result) || 0 };
+                    }).sort(function(a,b){ return a.age - b.age; });
+
+                    var reqStr = parseFloat(ev.reqStrength) || 0;
+                    var maxPsi = Math.max.apply(null, chartData.map(function(d){ return d.psi; }));
+                    if (reqStr > maxPsi) maxPsi = reqStr;
+                    maxPsi = Math.ceil(maxPsi * 1.15 / 500) * 500; // round up to nearest 500
+                    var maxAge = Math.max.apply(null, chartData.map(function(d){ return d.age; }));
+                    if (maxAge < 28) maxAge = 28;
+
+                    // Build chart as inline canvas drawn with Chart.js
+                    html += '<h2 style="page-break-before:auto">Strength Development (PSI vs Age)</h2>';
+                    html += '<div style="background:white;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:20px">';
+                    html += '<canvas id="cylChart" width="720" height="320"></canvas>';
+                    html += '</div>';
+
+                    // Inject chart script into the popup HTML
+                    var chartPoints = JSON.stringify(chartData);
+                    var chartScript = '<scr' + 'ipt src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"><\/scr' + 'ipt>';
+                    chartScript += '<scr' + 'ipt>';
+                    chartScript += 'window.addEventListener("load",function(){';
+                    chartScript += 'var data=' + chartPoints + ';';
+                    chartScript += 'var reqStr=' + reqStr + ';';
+                    chartScript += 'var ctx=document.getElementById("cylChart").getContext("2d");';
+                    chartScript += 'var maxAge=' + JSON.stringify(maxAge) + ';';
+                    chartScript += 'var datasets=[{label:"Result (psi)",data:data.map(function(d){return{x:d.age,y:d.psi};}),';
+                    chartScript += 'borderColor:"#0369a1",backgroundColor:"rgba(3,105,161,0.12)",';
+                    chartScript += 'pointBackgroundColor:"#0369a1",pointRadius:6,pointHoverRadius:8,';
+                    chartScript += 'tension:0.3,fill:true,borderWidth:2.5}];';
+                    chartScript += 'if(reqStr>0){datasets.push({label:"Req. Strength ("+reqStr+" psi)",';
+                    chartScript += 'data:[{x:0,y:reqStr},{x:maxAge+5,y:reqStr}],';
+                    chartScript += 'borderColor:"#dc2626",borderDash:[6,4],pointRadius:0,borderWidth:2,fill:false});}';
+                    chartScript += 'new Chart(ctx,{type:"line",data:{datasets:datasets},options:{responsive:false,plugins:{legend:{position:"top"},';
+                    chartScript += 'tooltip:{callbacks:{label:function(ctx){return ctx.dataset.label+": "+ctx.parsed.y.toLocaleString()+" psi";}}}},';
+                    chartScript += 'scales:{x:{type:"linear",title:{display:true,text:"Age (days)",font:{weight:"bold"}},';
+                    chartScript += 'min:0,ticks:{stepSize:7}},';
+                    chartScript += 'y:{title:{display:true,text:"Compressive Strength (psi)",font:{weight:"bold"}},';
+                    chartScript += 'min:0,ticks:{callback:function(v){return v.toLocaleString();}}}}}';
+                    chartScript += '});';
+                    chartScript += '});';
+                    chartScript += '<\/scr' + 'ipt>';
+                    html += chartScript;
+                }
+            }
+
+            if (ev.notes) {
+                html += '<h2>General Notes</h2>';
+                html += '<div style="background:#f8f9fa;padding:14px;border-radius:8px;border-left:4px solid #16a34a;white-space:pre-wrap">'+ev.notes+'</div>';
+            }
+
+            html += '<p style="margin-top:36px;text-align:center;color:#888;font-size:11px">Reporte generado: '+new Date().toLocaleString('es-ES')+'</p>';
+            html += '</body></html>';
+
+            var win = window.open('','_blank');
+            if (!win) { alert('❌ Permite ventanas emergentes para generar el PDF.'); return; }
+            win.document.write(html);
+            win.document.close();
+            // Wait longer if chart is present so Chart.js can render before print
+            var printDelay = (html.indexOf('cylChart') !== -1) ? 1800 : 600;
+            setTimeout(function(){ try{ win.print(); } catch(e){} }, printDelay);
+        }
+
         // ── Tipos de Prueba management ─────────────────────────────────
         const TIPOS_PRUEBA_KEY = 'tiposPruebaCustom';
         const TIPOS_PRUEBA_DEFAULT = ['Lab', 'Planta', 'Proyecto'];
@@ -7773,7 +9066,9 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             } else {
                 let htmlMix = '<table><thead><tr><th>Nombre</th><th>Resistencia</th><th>W/C</th><th>Costo</th></tr></thead><tbody>';
                 recentMix.forEach(m => {
-                    htmlMix += `<tr><td>${m.nombre}</td><td>${m.resistencia} PSI</td><td>${m.resultados.wc.toFixed(2)}</td><td>$${m.resultados.costoTotal.toFixed(2)}</td></tr>`;
+                    const wc = m.resultados && m.resultados.wc ? m.resultados.wc.toFixed(2) : '-';
+                    const costo = m.resultados && m.resultados.costoTotal ? '$' + m.resultados.costoTotal.toFixed(2) : '-';
+                    htmlMix += '<tr><td>' + m.nombre + '</td><td>' + m.resistencia + ' PSI</td><td>' + wc + '</td><td>' + costo + '</td></tr>';
                 });
                 htmlMix += '</tbody></table>';
                 containerMix.innerHTML = htmlMix;
