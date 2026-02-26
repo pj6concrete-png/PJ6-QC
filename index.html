@@ -1057,11 +1057,18 @@
                         <div class="form-group">
                             <label>Tipo de Cemento</label>
                             <select id="tipo-cemento">
-                                <option value="Tipo I">Tipo I - Normal</option>
-                                <option value="Tipo II">Tipo II - Moderado</option>
-                                <option value="Tipo III">Tipo III - Alta Resistencia</option>
-                                <option value="Tipo IV">Tipo IV - Bajo Calor</option>
-                                <option value="Tipo V">Tipo V - Sulfato Resistente</option>
+                                <option value="Tipo I">Tipo I - Normal (ASTM C150)</option>
+                                <option value="Tipo I(PM)">Tipo I(PM) - Puzolana Modificado (ASTM C595)</option>
+                                <option value="Tipo IL">Tipo IL - Portland-Limestone (ASTM C595)</option>
+                                <option value="Tipo IT">Tipo IT - Ternario (ASTM C595)</option>
+                                <option value="Tipo 1T">Tipo 1T - Ternario con Puzolana (ASTM C595)</option>
+                                <option value="Tipo II">Tipo II - Moderado (ASTM C150)</option>
+                                <option value="Tipo II/V">Tipo II/V - Moderado Sulfato Resistente (ASTM C150)</option>
+                                <option value="Tipo III">Tipo III - Alta Resistencia Inicial (ASTM C150)</option>
+                                <option value="Tipo IV">Tipo IV - Bajo Calor de Hidratación (ASTM C150)</option>
+                                <option value="Tipo V">Tipo V - Sulfato Resistente (ASTM C150)</option>
+                                <option value="Tipo IP">Tipo IP - Portland-Puzolana (ASTM C595)</option>
+                                <option value="Tipo IS">Tipo IS - Portland-Escoria (ASTM C595)</option>
                             </select>
                         </div>
                         <div class="form-group">
@@ -3892,7 +3899,7 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
         </div>
     </div>
 
-</body>
+dy>
 </html>`;
 
             const win = window.open('', '_blank');
@@ -4395,86 +4402,250 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             mixDesign.resultados = currentMixResults;
             
             const editId = document.getElementById('edit-mixdesign-id');
-            
+
             try {
                 if (editId && editId.value) {
                     // Actualizar existente
                     mixDesign.id = parseInt(editId.value);
                     await updateRecord('mixdesigns', mixDesign);
+                    editId.value = '';
                     alert('✅ Mix Design actualizado exitosamente');
                 } else {
                     // Crear nuevo
                     await addRecord('mixdesigns', mixDesign);
-                    alert('✅ Mix Design guardado exitosamente con ID: ' + mixDesign.mixId);
+                    alert('✅ Mix Design guardado exitosamente');
                 }
-                
-                // Limpiar formulario y recargar lista
+                document.getElementById('btn-reporte').disabled = false;
+                document.getElementById('btn-reporte-download').disabled = false;
                 clearForm('mixdesign');
                 await loadMixDesigns();
                 updateDashboard();
-                
             } catch (error) {
-                console.error('Error al guardar:', error);
+                console.error('Error al guardar mix design:', error);
                 alert('❌ Error al guardar: ' + error.message);
-            }
-
-
-            // editId ya declarado arriba
-
-            try {
-                if (editId) {
-                    mixDesign.id = parseInt(editId);
-                    await updateRecord('mixdesigns', mixDesign);
-                    alert('✅ Mix Design actualizado');
-                } else {
-                    await addRecord('mixdesigns', mixDesign);
-                document.getElementById('btn-reporte').disabled = false;
-                document.getElementById('btn-reporte-download').disabled = false;
-                    alert('✅ Mix Design guardado');
-                    document.getElementById('btn-reporte').disabled = false;
-                document.getElementById('btn-reporte-download').disabled = false;
-                }
-                clearForm('mixdesign');
-                loadMixDesigns();
-                updateDashboard();
-            } catch (error) {
-                alert('❌ Error: ' + error);
             }
         });
 
-        async function loadMixDesigns() {
-            const mixdesigns = await getAllRecords('mixdesigns');
-            const proyectos = await getAllRecords('proyectos');
-            const container = document.getElementById('lista-mixdesigns');
-            
-            if (mixdesigns.length === 0) {
-                container.innerHTML = '<div class="empty-state">No hay mix designs</div>';
-                return;
+
+        // ══════════════════════════════════════════════════════
+        // MIX DESIGN PREVIEW MODAL
+        // ══════════════════════════════════════════════════════
+
+        function cerrarPreviewMix() {
+            var m = document.getElementById('modal-mixdesign-preview');
+            if (m) m.style.display = 'none';
+        }
+
+        async function previewMixDesign(id) {
+            var mix;
+            try { mix = await getRecord('mixdesigns', id); } catch(e) { alert('Error: ' + e.message); return; }
+            if (!mix) { alert('Mix Design no encontrado'); return; }
+
+            var r = mix.resultados || {};
+
+            // Header
+            document.getElementById('pmx-nombre').textContent = mix.nombre || 'Sin nombre';
+            var sub = mix.resistencia + ' PSI';
+            if (mix.tipoCemento) sub += '  |  ' + mix.tipoCemento;
+            if (mix.fecha) sub += '  |  ' + new Date(mix.fecha + 'T00:00:00').toLocaleDateString('es-ES');
+            document.getElementById('pmx-sub').textContent = sub;
+
+            // Footer buttons
+            document.getElementById('pmx-btn-imprimir').setAttribute('onclick', 'cerrarPreviewMix();imprimirMixDesign(' + id + ')');
+            document.getElementById('pmx-btn-costos').setAttribute('onclick', 'cerrarPreviewMix();generarReporteCostosGuardado(' + id + ')');
+            document.getElementById('pmx-btn-editar').setAttribute('onclick', 'cerrarPreviewMix();editMixDesign(' + id + ')');
+
+            // ── Build body content ────────────────────────────────
+            var h = '';
+
+            // Info grid row helper
+            function infoItem(label, value, color) {
+                return '<div style="background:#f8fafc;border-radius:8px;padding:12px 14px">' +
+                       '<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#64748b;letter-spacing:.5px">' + label + '</div>' +
+                       '<div style="font-size:15px;font-weight:600;color:' + (color||'#1e293b') + ';margin-top:4px">' + value + '</div>' +
+                       '</div>';
             }
-            
-            let html = '<table><thead><tr><th><input type="checkbox" id="select-all-mixdesigns" onchange="toggleAllMixDesigns(this)"></th><th>Nombre</th><th>Resistencia</th><th>W/C</th><th>Proyecto</th><th>Costo</th><th>Fecha</th><th>Acciones</th></tr></thead><tbody>';
-            mixdesigns.forEach(m => {
-                const proyecto = proyectos.find(p => p.id == m.proyecto);
-                html += `<tr>
-                    <td><input type="checkbox" class="mix-checkbox" data-id="${m.id}" onchange="updateSelectedCount()"></td>
-                    <td><strong>${m.nombre}</strong></td>
-                    <td>${m.resistencia} PSI</td>
-                    <td>${m.resultados.wc.toFixed(2)}</td>
-                    <td>${proyecto ? proyecto.nombre : '-'}</td>
-                    <td>$${m.resultados.costoTotal.toFixed(2)}</td>
-                    <td>${new Date(m.fechaCreacion).toLocaleDateString()}</td>
-                    <td class="actions">
-                        <button class="info" onclick="verMixDesign(${m.id})">Ver</button>
-                        <button class="secondary" onclick="editMixDesign(${m.id})">Editar</button>
-                        <button class="success" onclick="imprimirMixDesign(${m.id})" title="Imprimir Reporte">🖨️</button>
-                        <button class="warning" onclick="generarReporteCostosGuardado(${m.id})" title="Reporte de Costos">💰</button>
-                        <button class="danger" onclick="deleteMixDesign(${m.id})">Eliminar</button>
-                    </td>
-                </tr>`;
+
+            // Section title helper
+            function secTitle(t) {
+                return '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#0369a1;letter-spacing:.8px;margin:18px 0 8px 0;padding-bottom:4px;border-bottom:2px solid #e0f2fe">' + t + '</div>';
+            }
+
+            // ── Parámetros de diseño ─────────────────────────────
+            h += secTitle('Parámetros de Diseño');
+            h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">';
+            h += infoItem('Resistencia', mix.resistencia + ' PSI', '#0369a1');
+            h += infoItem('Slump', (mix.slump||'—') + ' in');
+            h += infoItem('TMA', (mix.tma||'—') + ' in');
+            h += infoItem('W/C Ratio', r.wc ? r.wc.toFixed(3) : '—', '#7c3aed');
+            h += infoItem('Aire', (mix.contenidoAire||'—') + ' %');
+            h += infoItem('Aplicación', mix.aplicacion || '—');
+            h += '</div>';
+
+            // ── Proporciones de mezcla (/yd³) ────────────────────
+            h += secTitle('Proporciones por yd³ (lb)');
+            h += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+            h += '<thead><tr style="background:#0369a1;color:white">';
+            h += '<th style="padding:8px 10px;text-align:left">Material</th>';
+            h += '<th style="padding:8px 10px;text-align:right">lb/yd³</th>';
+            h += '<th style="padding:8px 10px;text-align:right">% Vol.</th>';
+            h += '</tr></thead><tbody>';
+
+            var rows = [];
+
+            // Cemento + SCMs
+            if (r.cemento && r.cemento.peso > 0) {
+                var tipoCem = mix.tipoCemento || 'Cemento';
+                rows.push({name: tipoCem, lb: r.cemento.peso, vol: r.cemento.volumen, bg: '#eff6ff'});
+            }
+            [1,2,3].forEach(function(i) {
+                var s = r['scm' + i];
+                if (s && s.peso > 0) rows.push({name: (mix['tipoSCM'+i]||'SCM '+i), lb: s.peso, vol: s.volumen, bg: '#f5f3ff'});
             });
-            html += '</tbody></table>';
-            container.innerHTML = html;
-            updateSelectedCount();
+
+            if (r.agua && r.agua.peso > 0)
+                rows.push({name: 'Agua Efectiva', lb: r.agua.peso, vol: r.agua.volumen, bg: '#f0f9ff'});
+            if (r.grueso && r.grueso.peso > 0)
+                rows.push({name: 'Agregado Grueso', lb: r.grueso.peso, vol: r.grueso.volumen, bg: '#f8fafc'});
+            if (r.intermedio && r.intermedio.peso > 0)
+                rows.push({name: 'Agregado Intermedio', lb: r.intermedio.peso, vol: r.intermedio.volumen, bg: '#f8fafc'});
+            if (r.arena1 && r.arena1.peso > 0)
+                rows.push({name: 'Arena 1', lb: r.arena1.peso, vol: r.arena1.volumen, bg: '#f8fafc'});
+            if (r.arena2 && r.arena2.peso > 0)
+                rows.push({name: 'Arena 2', lb: r.arena2.peso, vol: r.arena2.volumen, bg: '#f8fafc'});
+            [1,2,3].forEach(function(i) {
+                var a = r['aditivo'+i];
+                if (a && a.peso > 0) rows.push({name: a.nombre||('Aditivo '+i), lb: a.peso, vol: a.volumen, bg: '#fffbeb'});
+            });
+            // Aire
+            if (r.volumenAire > 0)
+                rows.push({name: 'Aire', lb: null, vol: r.volumenAire, bg: '#f1f5f9'});
+
+            var totalVol = 0;
+            rows.forEach(function(row) { totalVol += (row.vol||0); });
+
+            rows.forEach(function(row, i) {
+                var pct = totalVol > 0 ? ((row.vol||0)/totalVol*100).toFixed(1) : '—';
+                var lbStr = row.lb != null ? row.lb.toFixed(1) : '—';
+                var rowBg = i % 2 === 0 ? row.bg : '#fff';
+                h += '<tr style="background:' + rowBg + '">';
+                h += '<td style="padding:7px 10px">' + row.name + '</td>';
+                h += '<td style="padding:7px 10px;text-align:right;font-weight:600">' + lbStr + '</td>';
+                h += '<td style="padding:7px 10px;text-align:right;color:#64748b">' + pct + '%</td>';
+                h += '</tr>';
+            });
+
+            // Total row
+            if (r.pesoTotal > 0) {
+                h += '<tr style="background:#0369a1;color:white;font-weight:700">';
+                h += '<td style="padding:8px 10px">TOTAL BATCH (1 yd³)</td>';
+                h += '<td style="padding:8px 10px;text-align:right">' + r.pesoTotal.toFixed(1) + ' lb</td>';
+                h += '<td style="padding:8px 10px;text-align:right">27.0 ft³</td>';
+                h += '</tr>';
+            }
+            h += '</tbody></table>';
+
+            // ── Aditivos dosis ───────────────────────────────────
+            var hasAditivos = [1,2,3].some(function(i){ var a=r['aditivo'+i]; return a && a.peso>0; });
+            if (hasAditivos) {
+                h += secTitle('Aditivos');
+                h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">';
+                [1,2,3].forEach(function(i) {
+                    var a = r['aditivo'+i];
+                    if (a && a.peso > 0) {
+                        var oz = (a.peso * 16).toFixed(2);
+                        h += infoItem(a.nombre||('Aditivo '+i), a.peso.toFixed(3) + ' lb/yd³ (' + oz + ' oz)', '#92400e');
+                    }
+                });
+                h += '</div>';
+            }
+
+            // ── Costo ─────────────────────────────────────────────
+            if (r.costoTotal > 0) {
+                h += secTitle('Resumen Económico');
+                h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">';
+                h += infoItem('Costo por yd³', '$' + r.costoTotal.toFixed(2), '#16a34a');
+                if (r.sacosCemento) h += infoItem('Sacos Cemento/yd³', r.sacosCemento.toFixed(2) + ' sacos');
+                h += '</div>';
+            }
+
+            // ── SCMs summary if present ───────────────────────────
+            var hasSCM = [1,2,3].some(function(i){ var s=r['scm'+i]; return s && s.peso>0; });
+            if (hasSCM) {
+                h += secTitle('Material Cementicio Suplementario');
+                h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">';
+                [1,2,3].forEach(function(i) {
+                    var s = r['scm'+i];
+                    if (s && s.peso > 0) {
+                        var pctScm = r.cemento ? ((s.peso/(r.cemento.peso+s.peso))*100).toFixed(1) : '—';
+                        h += infoItem((mix['tipoSCM'+i]||'SCM '+i), s.peso.toFixed(1) + ' lb (' + pctScm + '%)', '#7c3aed');
+                    }
+                });
+                h += '</div>';
+            }
+
+            document.getElementById('pmx-body').innerHTML = h;
+
+            // Show modal
+            var modal = document.getElementById('modal-mixdesign-preview');
+            modal.style.display = 'flex';
+        }
+
+        async function loadMixDesigns() {
+            try {
+                const mixdesigns = await getAllRecords('mixdesigns');
+                const proyectos  = await getAllRecords('proyectos');
+                const container  = document.getElementById('lista-mixdesigns');
+                if (!container) return;
+
+                if (!mixdesigns || mixdesigns.length === 0) {
+                    container.innerHTML = '<div class="empty-state">No hay mix designs guardados</div>';
+                    return;
+                }
+
+                let html = '<table><thead><tr>' +
+                    '<th><input type="checkbox" id="select-all-mixdesigns" onchange="toggleAllMixDesigns(this)"></th>' +
+                    '<th>Nombre</th><th>Resistencia</th><th>W/C</th><th>Proyecto</th><th>Costo</th><th>Fecha</th><th>Acciones</th>' +
+                    '</tr></thead><tbody>';
+
+                mixdesigns.forEach(function(m) {
+                    try {
+                        var proyecto  = proyectos.find(function(p){ return p.id == m.proyecto; });
+                        var wc        = m.resultados && m.resultados.wc != null ? m.resultados.wc.toFixed(2) : '-';
+                        var costo     = m.resultados && m.resultados.costoTotal != null ? '$' + m.resultados.costoTotal.toFixed(2) : '-';
+                        var fechaStr  = '-';
+                        try { if (m.fechaCreacion) fechaStr = new Date(m.fechaCreacion).toLocaleDateString(); } catch(fe){}
+                        var nombre    = m.nombre || '(sin nombre)';
+
+                        html += '<tr>' +
+                            '<td><input type="checkbox" class="mix-checkbox" data-id="' + m.id + '" onchange="updateSelectedCount()"></td>' +
+                            '<td><strong>' + nombre + '</strong></td>' +
+                            '<td>' + (m.resistencia||'-') + ' PSI</td>' +
+                            '<td>' + wc + '</td>' +
+                            '<td>' + (proyecto ? proyecto.nombre : '-') + '</td>' +
+                            '<td>' + costo + '</td>' +
+                            '<td>' + fechaStr + '</td>' +
+                            '<td class="actions">' +
+                                '<button class="info" onclick="previewMixDesign(' + m.id + ')">&#128065; Ver</button>' +
+                                '<button class="secondary" onclick="editMixDesign(' + m.id + ')">Editar</button>' +
+                                '<button class="success" onclick="imprimirMixDesign(' + m.id + ')" title="Imprimir Reporte">&#128424;</button>' +
+                                '<button class="warning" onclick="generarReporteCostosGuardado(' + m.id + ')" title="Reporte de Costos">&#128176;</button>' +
+                                '<button class="danger" onclick="deleteMixDesign(' + m.id + ')">Eliminar</button>' +
+                            '</td>' +
+                        '</tr>';
+                    } catch(rowErr) {
+                        console.warn('Error rendering mix design row id=' + m.id + ':', rowErr);
+                    }
+                });
+
+                html += '</tbody></table>';
+                container.innerHTML = html;
+                try { updateSelectedCount(); } catch(e){}
+            } catch(e) {
+                console.error('loadMixDesigns error:', e);
+                var container = document.getElementById('lista-mixdesigns');
+                if (container) container.innerHTML = '<div class="empty-state" style="color:red">Error cargando mix designs: ' + e.message + '</div>';
+            }
         }
 
         // ============ FUNCIÓN CENTRAL DE REPORTE HTML ============
@@ -5101,12 +5272,13 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
         }
 
         async function verMixDesign(id) {
-            const mix = await getRecord('mixdesigns', id);
-            if (!mix) return;
-            
+            let mix;
+            try { mix = await getRecord('mixdesigns', id); } catch(e) { alert('Error cargando mix design: ' + e.message); return; }
+            if (!mix) { alert('Mix Design no encontrado (ID: ' + id + ')'); return; }
+
             // Cargar listas primero
-            await loadClientesSelect();
-            await loadProyectosSelect();
+            try { await loadClientesSelect(); } catch(e) {}
+            try { await loadProyectosSelect(); } catch(e) {}
             
             // Cargar valores básicos en el formulario
             document.getElementById('mix-nombre').value = mix.nombre;
@@ -5209,17 +5381,14 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             document.getElementById('precio-aditivo3').value = mix.precioAditivo3;
             
             // Recalcular el mix design con los valores cargados
-            calcularMixDesign();
-            
+            try { calcularMixDesign(); } catch(e) { console.warn('calcularMixDesign error:', e); }
+
             switchTab('mixdesign');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            setTimeout(function() { window.scrollTo({ top: 0, behavior: 'smooth' }); }, 150);
         }
 
         async function editMixDesign(id) {
-            const mix = await getRecord('mixdesigns', id);
-            if (!mix) return;
-            
-            document.getElementById('edit-mixdesign-id').value = mix.id;
+            document.getElementById('edit-mixdesign-id').value = id;
             await verMixDesign(id);
         }
 
@@ -13004,5 +13173,25 @@ Sistema de Optimización AI de Concreto — ACI 211.1 / ACI 318 / ASTM C33 / Mé
       </div>
     </div>
 
+
+    <!-- Modal: Mix Design Preview -->
+    <div id="modal-mixdesign-preview" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9998;align-items:flex-start;justify-content:center;padding:30px 16px;overflow-y:auto" onclick="if(event.target===this)cerrarPreviewMix()">
+        <div style="background:white;border-radius:14px;width:100%;max-width:720px;box-shadow:0 24px 60px rgba(0,0,0,0.3);overflow:hidden">
+            <div style="background:linear-gradient(135deg,#0369a1,#0284c7);padding:20px 24px;display:flex;justify-content:space-between;align-items:center">
+                <div>
+                    <div id="pmx-nombre" style="color:white;font-size:20px;font-weight:700"></div>
+                    <div id="pmx-sub" style="color:rgba(255,255,255,0.8);font-size:13px;margin-top:3px"></div>
+                </div>
+                <button onclick="cerrarPreviewMix()" style="background:rgba(255,255,255,0.2);border:none;color:white;font-size:22px;width:36px;height:36px;border-radius:50%;cursor:pointer;line-height:1">&times;</button>
+            </div>
+            <div style="padding:24px;max-height:70vh;overflow-y:auto" id="pmx-body"></div>
+            <div style="padding:16px 24px;border-top:1px solid #e5e7eb;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+                <button class="secondary" onclick="cerrarPreviewMix()">Cerrar</button>
+                <button class="warning" id="pmx-btn-costos">&#128176; Costos</button>
+                <button class="success" id="pmx-btn-imprimir">&#128424; Reporte</button>
+                <button class="info" id="pmx-btn-editar">&#9999; Editar</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
