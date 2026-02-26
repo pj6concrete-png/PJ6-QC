@@ -8094,29 +8094,34 @@ dy>
         });
 
         async function cargarClientesTrialSelect() {
-            const sel = document.getElementById('trial-cliente-id');
-            if (!sel) return;
-            const clientes = await getAllRecords('clientes');
-            sel.innerHTML = '<option value="">Sin cliente</option>';
-            clientes.forEach(function(cl) {
-                const opt = document.createElement('option');
-                opt.value = cl.id; opt.textContent = cl.nombre;
-                sel.appendChild(opt);
-            });
+            try {
+                const sel = document.getElementById('trial-cliente-id');
+                if (!sel) return;
+                const clientes = await getAllRecords('clientes');
+                sel.innerHTML = '<option value="">Sin cliente</option>';
+                (clientes || []).forEach(function(cl) {
+                    const opt = document.createElement('option');
+                    opt.value = cl.id; opt.textContent = cl.nombre;
+                    sel.appendChild(opt);
+                });
+            } catch(e) { console.error('cargarClientesTrialSelect:', e); }
         }
 
         async function cargarProyectosTrial() {
-            const clienteId = parseInt(document.getElementById('trial-cliente-id').value) || 0;
-            const sel = document.getElementById('trial-proyecto-id');
-            if (!sel) return;
-            sel.innerHTML = '<option value="">Sin proyecto</option>';
-            if (!clienteId) return;
-            const proyectos = await getAllRecords('proyectos');
-            proyectos.filter(function(p){ return p.clienteId == clienteId; }).forEach(function(p) {
-                const opt = document.createElement('option');
-                opt.value = p.id; opt.textContent = p.nombre;
-                sel.appendChild(opt);
-            });
+            try {
+                const clienteId = parseInt(document.getElementById('trial-cliente-id').value) || 0;
+                const sel = document.getElementById('trial-proyecto-id');
+                if (!sel) return;
+                sel.innerHTML = '<option value="">Sin proyecto</option>';
+                if (!clienteId) return;
+                const proyectos = await getAllRecords('proyectos');
+                // proyectos se guardan con p.cliente = ID del cliente (como string)
+                (proyectos || []).filter(function(p){ return String(p.cliente) === String(clienteId); }).forEach(function(p) {
+                    const opt = document.createElement('option');
+                    opt.value = p.id; opt.textContent = p.nombre;
+                    sel.appendChild(opt);
+                });
+            } catch(e) { console.error('cargarProyectosTrial:', e); }
         }
 
         async function generarPDFTrialPorId(id) {
