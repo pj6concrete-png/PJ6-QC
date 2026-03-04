@@ -866,7 +866,7 @@
                         <span>Complete la información del cliente y agregue las líneas de cotización</span>
                     </div>
 
-                    <h3>📋 Información del Cliente</h3>
+                    <h3>Información del Cliente</h3>
                     <div class="form-grid cols-3">
                         <div class="form-group">
                             <label>Número de Cotización</label>
@@ -882,20 +882,69 @@
                         </div>
                     </div>
 
-                    <div class="form-grid cols-4">
+                    <div class="form-grid cols-2" style="margin-bottom:6px;">
                         <div class="form-group">
                             <label>Status *</label>
                             <select id="cotizacion-status" required>
-                                <option value="Pendiente">⏳ Pendiente</option>
-                                <option value="Aprobada">✅ Aprobada</option>
-                                <option value="Rechazada">❌ Rechazada</option>
-                                <option value="En Revisión">👁️ En Revisión</option>
-                                <option value="Cancelada">🚫 Cancelada</option>
+                                <option value="Pendiente">Pendiente</option>
+                                <option value="Aprobada">Aprobada</option>
+                                <option value="Rechazada">Rechazada</option>
+                                <option value="En Revisión">En Revisión</option>
+                                <option value="Cancelada">Cancelada</option>
                             </select>
                         </div>
                         <div class="form-group">
+                            <label>Cliente <small>(selecciona uno existente o crea nuevo)</small></label>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <select id="cotizacion-cliente-select" onchange="autocompletarClienteCotizacion()" style="flex:1;">
+                                    <option value="">-- Seleccionar cliente existente --</option>
+                                </select>
+                                <button type="button" onclick="mostrarModalNuevoClienteCot()" style="padding:10px 14px;white-space:nowrap;background:#10b981;" title="Crear nuevo cliente">➕ Nuevo</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Modal para crear nuevo cliente desde cotizaciones -->
+                    <div id="modal-nuevo-cliente-cot" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
+                        <div style="background:#fff;border-radius:12px;padding:30px;width:90%;max-width:500px;box-shadow:0 10px 40px rgba(0,0,0,0.3);">
+                            <h3 style="margin-bottom:20px;color:#2563eb;">👤 Nuevo Cliente</h3>
+                            <div class="form-grid cols-2">
+                                <div class="form-group" style="grid-column:1/-1;">
+                                    <label>Nombre *</label>
+                                    <input type="text" id="nuevo-cot-nombre" placeholder="Ej: Juan Pérez" required>
+                                </div>
+                                <div class="form-group" style="grid-column:1/-1;">
+                                    <label>Empresa / Compañía</label>
+                                    <input type="text" id="nuevo-cot-empresa" placeholder="Ej: Constructora ABC Corp.">
+                                </div>
+                                <div class="form-group">
+                                    <label>Teléfono</label>
+                                    <input type="tel" id="nuevo-cot-tel" placeholder="787-123-4567">
+                                </div>
+                                <div class="form-group">
+                                    <label>Email</label>
+                                    <input type="email" id="nuevo-cot-email" placeholder="cliente@email.com">
+                                </div>
+                                <div class="form-group" style="grid-column:1/-1;">
+                                    <label>Notas</label>
+                                    <textarea id="nuevo-cot-notas" rows="2" placeholder="Notas adicionales..."></textarea>
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end;">
+                                <button type="button" onclick="cerrarModalNuevoClienteCot()" style="background:#64748b;">✖ Cancelar</button>
+                                <button type="button" onclick="guardarNuevoClienteDesdeCot()" style="background:#10b981;">✅ Crear y Seleccionar</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-grid cols-2">
+                        <div class="form-group">
                             <label>Nombre del Cliente *</label>
                             <input type="text" id="cotizacion-cliente-nombre" required placeholder="Ej: Juan Pérez">
+                        </div>
+                        <div class="form-group">
+                            <label>Compañía</label>
+                            <input type="text" id="cotizacion-cliente-compania" placeholder="Ej: Constructora ABC Corp.">
                         </div>
                         <div class="form-group">
                             <label>Teléfono</label>
@@ -3247,7 +3296,106 @@
                     selectMix.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
                 });
             }
+
+            // Cargar en select de cotizacion — guarda datos del cliente en data-*
+            const selectCot = document.getElementById('cotizacion-cliente-select');
+            if (selectCot) {
+                const current = selectCot.value;
+                selectCot.innerHTML = '<option value="">-- Seleccionar cliente --</option>';
+                clientes.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value    = c.id;
+                    opt.text     = c.nombre + (c.empresa ? ' — ' + c.empresa : '');
+                    opt.dataset.nombre   = c.nombre   || '';
+                    opt.dataset.empresa  = c.empresa  || '';
+                    opt.dataset.tel      = c.telefono || '';
+                    opt.dataset.email    = c.email    || '';
+                    selectCot.appendChild(opt);
+                });
+                if (current) selectCot.value = current;
+            }
         }
+
+        function autocompletarClienteCotizacion() {
+            const sel = document.getElementById('cotizacion-cliente-select');
+            if (!sel) return;
+            if (!sel.value) {
+                document.getElementById('cotizacion-cliente-nombre').value   = '';
+                document.getElementById('cotizacion-cliente-compania').value = '';
+                document.getElementById('cotizacion-cliente-tel').value      = '';
+                document.getElementById('cotizacion-cliente-email').value    = '';
+                return;
+            }
+            const opt = sel.options[sel.selectedIndex];
+            document.getElementById('cotizacion-cliente-nombre').value   = opt.dataset.nombre  || '';
+            document.getElementById('cotizacion-cliente-compania').value = opt.dataset.empresa || '';
+            document.getElementById('cotizacion-cliente-tel').value      = opt.dataset.tel     || '';
+            document.getElementById('cotizacion-cliente-email').value    = opt.dataset.email   || '';
+        }
+
+        function mostrarModalNuevoClienteCot() {
+            const modal = document.getElementById('modal-nuevo-cliente-cot');
+            modal.style.display = 'flex';
+            document.getElementById('nuevo-cot-nombre').value  = '';
+            document.getElementById('nuevo-cot-empresa').value = '';
+            document.getElementById('nuevo-cot-tel').value     = '';
+            document.getElementById('nuevo-cot-email').value   = '';
+            document.getElementById('nuevo-cot-notas').value   = '';
+            setTimeout(() => document.getElementById('nuevo-cot-nombre').focus(), 100);
+        }
+
+        function cerrarModalNuevoClienteCot() {
+            document.getElementById('modal-nuevo-cliente-cot').style.display = 'none';
+        }
+
+        async function guardarNuevoClienteDesdeCot() {
+            const nombre = document.getElementById('nuevo-cot-nombre').value.trim();
+            if (!nombre) {
+                alert('\u26a0\ufe0f El nombre del cliente es requerido');
+                document.getElementById('nuevo-cot-nombre').focus();
+                return;
+            }
+
+            const cliente = {
+                nombre:    nombre,
+                empresa:   document.getElementById('nuevo-cot-empresa').value.trim(),
+                telefono:  document.getElementById('nuevo-cot-tel').value.trim(),
+                email:     document.getElementById('nuevo-cot-email').value.trim(),
+                notas:     document.getElementById('nuevo-cot-notas').value.trim(),
+                fechaCreacion: new Date().toISOString()
+            };
+
+            try {
+                const newId = await addRecord('clientes', cliente);
+                cliente.id = newId;
+
+                // Recargar el select y seleccionar el nuevo cliente
+                await loadClientesSelect();
+
+                const sel = document.getElementById('cotizacion-cliente-select');
+                if (sel) {
+                    sel.value = newId;
+                    autocompletarClienteCotizacion();
+                }
+
+                cerrarModalNuevoClienteCot();
+                alert('\u2705 Cliente creado y seleccionado correctamente');
+
+                try { updateStats(); } catch(e) {}
+
+            } catch (err) {
+                alert('\u274c Error al guardar cliente: ' + err.message);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const modalCot = document.getElementById('modal-nuevo-cliente-cot');
+            if (modalCot) {
+                modalCot.addEventListener('click', function(e) {
+                    if (e.target === this) cerrarModalNuevoClienteCot();
+                });
+            }
+        });
 
         async function loadProyectosSelect() {
             const proyectos = await getAllRecords('proyectos');
@@ -3510,6 +3658,7 @@
                 validaHasta: document.getElementById('cotizacion-valida-hasta').value,
                 status: document.getElementById('cotizacion-status').value,
                 clienteNombre: document.getElementById('cotizacion-cliente-nombre').value,
+                clienteCompania: document.getElementById('cotizacion-cliente-compania').value,
                 clienteTel: document.getElementById('cotizacion-cliente-tel').value,
                 clienteEmail: document.getElementById('cotizacion-cliente-email').value,
                 proyecto: document.getElementById('cotizacion-proyecto').value,
@@ -3577,7 +3726,7 @@
                 return colors[status] || '#6b7280';
             };
             
-            let html = '<table><thead><tr><th>Número</th><th>Status</th><th>Cliente</th><th>Proyecto</th><th>Fecha</th><th>Total YD³</th><th>Acciones</th></tr></thead><tbody>';
+            let html = '<table><thead><tr><th>Número</th><th>Status</th><th>Cliente</th><th>Compañía</th><th>Proyecto</th><th>Fecha</th><th>Total YD³</th><th>Acciones</th></tr></thead><tbody>';
             cotizaciones.forEach(c => {
                 const statusColor = getStatusColor(c.status || 'Pendiente');
                 const statusEmoji = getStatusEmoji(c.status || 'Pendiente');
@@ -3585,6 +3734,7 @@
                     <td><strong>${c.numero}</strong></td>
                     <td><span style="background: ${statusColor}; color: white; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: bold; white-space: nowrap;">${statusEmoji} ${c.status || 'Pendiente'}</span></td>
                     <td>${c.clienteNombre}</td>
+                    <td style="color:#475569;font-size:13px;">${c.clienteCompania || '—'}</td>
                     <td>${c.proyecto}</td>
                     <td>${new Date(c.fecha).toLocaleDateString('es-ES')}</td>
                     <td style="color: #0369a1; font-weight: bold;">${(c.totalYd || 0).toFixed(2)} yd³</td>
@@ -3656,8 +3806,9 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
             document.getElementById('cotizacion-fecha').value = cotizacion.fecha;
             document.getElementById('cotizacion-valida-hasta').value = cotizacion.validaHasta;
             document.getElementById('cotizacion-status').value = cotizacion.status || 'Pendiente';
-            document.getElementById('cotizacion-cliente-nombre').value = cotizacion.clienteNombre;
-            document.getElementById('cotizacion-cliente-tel').value = cotizacion.clienteTel || '';
+            document.getElementById('cotizacion-cliente-nombre').value   = cotizacion.clienteNombre;
+            document.getElementById('cotizacion-cliente-compania').value = cotizacion.clienteCompania || '';
+            document.getElementById('cotizacion-cliente-tel').value      = cotizacion.clienteTel || '';
             document.getElementById('cotizacion-cliente-email').value = cotizacion.clienteEmail || '';
             document.getElementById('cotizacion-proyecto').value = cotizacion.proyecto;
             document.getElementById('cotizacion-ubicacion').value = cotizacion.ubicacion || '';
@@ -3731,6 +3882,7 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
                 fecha: document.getElementById('cotizacion-fecha').value,
                 validaHasta: document.getElementById('cotizacion-valida-hasta').value,
                 clienteNombre: document.getElementById('cotizacion-cliente-nombre').value,
+                clienteCompania: document.getElementById('cotizacion-cliente-compania').value,
                 clienteTel: document.getElementById('cotizacion-cliente-tel').value,
                 clienteEmail: document.getElementById('cotizacion-cliente-email').value,
                 proyecto: document.getElementById('cotizacion-proyecto').value,
@@ -3795,7 +3947,7 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
     </div>
 
     <div class="info-section">
-        <h3>📅 Información de la Cotización</h3>
+        <h3>Información de la Cotización</h3>
         <div class="info-grid">
             <div class="info-item">
                 <div class="info-label">Fecha de Emisión</div>
@@ -3809,11 +3961,15 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
     </div>
 
     <div class="info-section">
-        <h3>👤 Información del Cliente</h3>
+        <h3>Información del Cliente</h3>
         <div class="info-grid">
             <div class="info-item">
                 <div class="info-label">Nombre</div>
                 <div class="info-value">${cotizacion.clienteNombre}</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Compañía</div>
+                <div class="info-value">${cotizacion.clienteCompania || '—'}</div>
             </div>
             <div class="info-item">
                 <div class="info-label">Teléfono</div>
@@ -3827,14 +3983,14 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
                 <div class="info-label">Proyecto</div>
                 <div class="info-value">${cotizacion.proyecto}</div>
             </div>
+            ${cotizacion.ubicacion ? `<div class="info-item">
+                <div class="info-label">Ubicación</div>
+                <div class="info-value">${cotizacion.ubicacion}</div>
+            </div>` : ''}
         </div>
-        ${cotizacion.ubicacion ? `<div style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
-            <div class="info-label">Ubicación</div>
-            <div class="info-value">${cotizacion.ubicacion}</div>
-        </div>` : ''}
     </div>
 
-    <h3 style="color: #16a34a; margin: 25px 0 15px 0;">📝 Detalle de la Cotización</h3>
+    <h3 style="color: #16a34a; margin: 25px 0 15px 0;">Detalle de la Cotización</h3>
     <table>
         <thead>
             <tr>
@@ -3863,10 +4019,18 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
 
     ${cotizacion.notas ? `
         <div class="notas">
-            <h4 style="color: #92400e; margin-bottom: 8px;">📄 Notas y Condiciones</h4>
+            <h4 style="color: #92400e; margin-bottom: 8px;">Notas y Condiciones</h4>
             <p style="line-height: 1.6; white-space: pre-wrap;">${cotizacion.notas}</p>
         </div>
     ` : ''}
+
+    <div style="margin-top: 60px; width: 260px;">
+        <div style="border-top: 2px solid #333; padding-top: 10px; text-align: center;">
+            <p style="font-weight: bold; margin: 0;">${cotizacion.clienteNombre}</p>
+            ${cotizacion.clienteCompania ? `<p style="color:#555;font-size:13px;margin:4px 0 0 0;">Representante de ${cotizacion.clienteCompania}</p>` : ''}
+            <p style="color:#888;font-size:12px;margin:4px 0 0 0;">Firma</p>
+        </div>
+    </div>
 
     <div class="footer">
         <p><strong>Gracias por su preferencia</strong></p>
@@ -3874,32 +4038,9 @@ TOTAL GENERAL: $${cotizacion.total.toFixed(2)}
     </div>
 
 <scr` + `ipt>
-    window.onload = function() {
-        setTimeout(() => window.print(), 500);
-    };
+    window.onload = function() { setTimeout(() => window.print(), 500); };
 </scr` + `ipt>
-
-    <!-- Modal: Editar Tipos de Prueba -->
-    <div id="modal-tipos-prueba" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
-        <div style="background:white;border-radius:12px;padding:28px;width:420px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.3)">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-                <h3 style="margin:0;color:#16a34a">✏️ Tipos de Prueba</h3>
-                <button onclick="cerrarModalTiposPrueba()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#666">&times;</button>
-            </div>
-            <p style="font-size:13px;color:#666;margin-bottom:16px">Administra las opciones del selector "Tipo de Prueba". Los valores predeterminados son Lab, Planta y Proyecto.</p>
-            <div id="lista-tipos-prueba" style="margin-bottom:16px;display:flex;flex-direction:column;gap:8px"></div>
-            <div style="display:flex;gap:8px;margin-bottom:16px">
-                <input type="text" id="nuevo-tipo-prueba-input" placeholder="Nuevo tipo..." style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px">
-                <button onclick="agregarTipoPrueba()" class="success" style="padding:8px 16px">+ Añadir</button>
-            </div>
-            <div style="display:flex;justify-content:flex-end;gap:8px">
-                <button onclick="cerrarModalTiposPrueba()" class="secondary">Cancelar</button>
-                <button onclick="guardarTiposPrueba()" class="success">💾 Guardar</button>
-            </div>
-        </div>
-    </div>
-
-dy>
+</body>
 </html>`;
 
             const win = window.open('', '_blank');
@@ -11589,11 +11730,31 @@ Sistema de Optimización AI de Concreto — ACI 211.1 / ACI 318 / ASTM C33 / Mé
             
             Object.keys(groupedByTrial).forEach(trialName => {
                 const trialData = groupedByTrial[trialName];
-                const avgResistencia = trialData.reduce((sum, d) => sum + d.resistencia, 0) / trialData.length;
-                const avgEficiencia = trialData.reduce((sum, d) => sum + parseFloat(d.eficiencia), 0) / trialData.length;
+
+                // Agrupar por edad (días de curado)
+                const groupedByAge = {};
+                trialData.forEach(d => {
+                    const age = d.diasCurado;
+                    if (!groupedByAge[age]) groupedByAge[age] = [];
+                    groupedByAge[age].push(d);
+                });
+
+                // Calcular promedio por edad
+                const ageAverages = {};
+                Object.keys(groupedByAge).forEach(age => {
+                    const group = groupedByAge[age];
+                    ageAverages[age] = {
+                        avgResistencia: group.reduce((s, d) => s + d.resistencia, 0) / group.length,
+                        avgEficiencia:  group.reduce((s, d) => s + parseFloat(d.eficiencia), 0) / group.length,
+                        count: group.length,
+                        objetivo: group[0].resistenciaObjetivo
+                    };
+                });
+
+                const sortedAges = Object.keys(groupedByAge).map(Number).sort((a, b) => a - b);
                 
                 html += `
-                    <h4 style="margin: 20px 0 10px 0; color: #16a34a;">${trialName} - Mix: ${trialData[0].mixName}</h4>
+                    <h4 style="margin: 20px 0 10px 0; color: #16a34a;">${trialName} — Mix: ${trialData[0].mixName}</h4>
                     <table>
                         <thead>
                             <tr>
@@ -11619,20 +11780,26 @@ Sistema de Optimización AI de Concreto — ACI 211.1 / ACI 318 / ASTM C33 / Mé
                         </tr>
                     `;
                 });
-                
-                html += `
-                        </tbody>
-                        <tfoot>
-                            <tr style="background: #f0fdf4; font-weight: bold;">
-                                <td>PROMEDIO</td>
-                                <td style="text-align: center; color: #16a34a;">${avgResistencia.toFixed(0)} PSI</td>
-                                <td></td>
-                                <td style="text-align: center; color: #16a34a;">${avgEficiencia.toFixed(1)}%</td>
-                                <td></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                `;
+
+                html += `</tbody><tfoot>`;
+
+                // Fila de promedio por cada edad
+                sortedAges.forEach(age => {
+                    const avg = ageAverages[age];
+                    const colorAvg = avg.avgEficiencia >= 100 ? '#16a34a' : avg.avgEficiencia >= 80 ? '#f59e0b' : '#dc2626';
+                    const countLabel = avg.count > 1 ? ` (n=${avg.count})` : '';
+                    html += `
+                        <tr style="background: #f0fdf4; font-weight: bold; border-top: 2px solid #bbf7d0;">
+                            <td style="color:#166534;">⌀ Prom. ${age} días${countLabel}</td>
+                            <td style="text-align: center; color: #16a34a;">${avg.avgResistencia.toFixed(0)} PSI</td>
+                            <td style="text-align: center; color:#64748b;">${avg.objetivo} PSI</td>
+                            <td style="text-align: center; color: ${colorAvg};">${avg.avgEficiencia.toFixed(1)}%</td>
+                            <td></td>
+                        </tr>
+                    `;
+                });
+
+                html += `</tfoot></table>`;
             });
             
             container.innerHTML = html || '<div class="empty-state">No hay datos para mostrar</div>';
